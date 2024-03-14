@@ -1,14 +1,15 @@
-"""The main entry point for the metatensor-models interface."""
+"""The main entry point for the metatensor-models command line interface."""
 
 import argparse
 import sys
+import traceback
 from pathlib import Path
 
 from . import __version__
-from .cli import eval_model, export_model, train_model
-from .cli.eval_model import _add_eval_model_parser
-from .cli.export_model import _add_export_model_parser
-from .cli.train_model import _add_train_model_parser
+from .cli.eval import _add_eval_model_parser, eval_model
+from .cli.export import _add_export_model_parser
+from .cli.train import _add_train_model_parser, train_model
+from .utils.io import export
 
 
 def main():
@@ -17,14 +18,29 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
+    if len(sys.argv) < 2:
+        ap.error("You must specify a sub-command")
+
+    # If you change the synopsis of these commands or add new ones adjust the completion
+    # script at `src/metatensor/models/share/metatensor-models-completion.bash`.
     ap.add_argument(
         "--version",
         action="version",
         version=f"metatensor-models {__version__}",
     )
 
-    if len(sys.argv) < 2:
-        ap.error("You must specify a sub-command")
+    ap.add_argument(
+        "--debug",
+        action="store_true",
+        help="Run with debug options.",
+    )
+
+    ap.add_argument(
+        "--shell-completion",
+        action="version",
+        help="Path to the shell completion script",
+        version=str(Path(__file__).parent / "share/metatensor-models-completion.bash"),
+    )
 
     # Add sub-parsers
     subparser = ap.add_subparsers(help="sub-command help")
@@ -34,29 +50,22 @@ def main():
 
     args = ap.parse_args()
     callable = args.__dict__.pop("callable")
+    debug = args.__dict__.pop("debug")
 
-    if callable == "eval_model":
-        eval_model(**args.__dict__)
-    elif callable == "export_model":
-        export_model(**args.__dict__)
-    elif callable == "train_model":
-        # HACK: Hydra parses command line arguments directlty from `sys.argv`. We
-        # override `sys.argv` to be compatible with our CLI architecture.
-        argv = sys.argv[:1]
-
-        options = Path(args.options)
-        argv.append(f"--config-dir={options.parent}")
-        argv.append(f"--config-name={options.name}")
-        argv.append(f"+output_path={args.output}")
-
-        if args.hydra_paramters is not None:
-            argv += args.hydra_paramters
-
-        sys.argv = argv
-
-        train_model()
-    else:
-        raise ValueError("internal error when selecting a sub-command.")
+    try:
+        if callable == "eval_model":
+            eval_model(**args.__dict__)
+        elif callable == "export_model":
+            export(**args.__dict__)
+        elif callable == "train_model":
+            train_model(**args.__dict__)
+        else:
+            raise ValueError("internal error when selecting a sub-command.")
+    except Exception as e:
+        if debug:
+            traceback.print_exc()
+        else:
+            sys.exit(f"\033[31mERROR: {e}\033[0m")  # format error in red!
 
 
 if __name__ == "__main__":

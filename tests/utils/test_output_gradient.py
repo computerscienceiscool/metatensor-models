@@ -2,12 +2,11 @@ from pathlib import Path
 
 import metatensor.torch
 import pytest
-import rascaline.torch
 import torch
-from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
+from metatensor.torch.atomistic import ModelCapabilities, ModelOutput, System
 
-from metatensor.models import soap_bpnn
-from metatensor.models.utils.data import read_structures
+from metatensor.models.experimental import soap_bpnn
+from metatensor.models.utils.data import read_systems
 from metatensor.models.utils.output_gradient import compute_gradient
 
 
@@ -20,7 +19,7 @@ def test_forces(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[1, 6, 7, 8],
+        atomic_types=[1, 6, 7, 8],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -30,26 +29,41 @@ def test_forces(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    structures = read_structures(RESOURCES_PATH / "qm9_reduced_100.xyz")[:5]
-    structures = rascaline.torch.systems_to_torch(
-        structures, positions_requires_grad=True
-    )
-    output = model(structures, {"energy": model.capabilities.outputs["energy"]})
+    systems = read_systems(
+        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
+    )[:5]
+    systems = [
+        System(
+            positions=system.positions.requires_grad_(True),
+            cell=system.cell,
+            types=system.types,
+        )
+        for system in systems
+    ]
+    output = model(systems, {"energy": model.capabilities.outputs["energy"]})
     position_gradients = compute_gradient(
         output["energy"].block().values,
-        [structure.positions for structure in structures],
+        [system.positions for system in systems],
         is_training=is_training,
     )
     forces = [-position_gradient for position_gradient in position_gradients]
 
     jitted_model = torch.jit.script(model)
-    structures = rascaline.torch.systems_to_torch(
-        structures, positions_requires_grad=True
-    )
-    output = jitted_model(structures, {"energy": model.capabilities.outputs["energy"]})
+    systems = read_systems(
+        RESOURCES_PATH / "qm9_reduced_100.xyz", dtype=torch.get_default_dtype()
+    )[:5]
+    systems = [
+        System(
+            positions=system.positions.requires_grad_(True),
+            cell=system.cell,
+            types=system.types,
+        )
+        for system in systems
+    ]
+    output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
     jitted_position_gradients = compute_gradient(
         output["energy"].block().values,
-        [structure.positions for structure in structures],
+        [system.positions for system in systems],
         is_training=is_training,
     )
     jitted_forces = [
@@ -66,7 +80,7 @@ def test_virial(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -76,55 +90,57 @@ def test_virial(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    structures = read_structures(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(
+        RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
+    )[:2]
 
-    displacements = [
+    strains = [
         torch.eye(
             3, requires_grad=True, dtype=system.cell.dtype, device=system.cell.device
         )
-        for system in structures
+        for system in systems
     ]
     systems = [
         metatensor.torch.atomistic.System(
-            positions=system.positions @ displacement,
-            cell=system.cell @ displacement,
-            species=system.species,
+            positions=system.positions @ strain,
+            cell=system.cell @ strain,
+            types=system.types,
         )
-        for system, displacement in zip(structures, displacements)
+        for system, strain in zip(systems, strains)
     ]
 
     output = model(systems, {"energy": model.capabilities.outputs["energy"]})
-    displacement_gradients = compute_gradient(
+    strain_gradients = compute_gradient(
         output["energy"].block().values,
-        displacements,
+        strains,
         is_training=is_training,
     )
-    virial = [-cell_gradient for cell_gradient in displacement_gradients]
+    virial = [-cell_gradient for cell_gradient in strain_gradients]
 
     jitted_model = torch.jit.script(model)
 
-    displacements = [
+    strains = [
         torch.eye(
             3, requires_grad=True, dtype=system.cell.dtype, device=system.cell.device
         )
-        for system in structures
+        for system in systems
     ]
     systems = [
         metatensor.torch.atomistic.System(
-            positions=system.positions @ displacement,
-            cell=system.cell @ displacement,
-            species=system.species,
+            positions=system.positions @ strain,
+            cell=system.cell @ strain,
+            types=system.types,
         )
-        for system, displacement in zip(structures, displacements)
+        for system, strain in zip(systems, strains)
     ]
 
     output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
-    jitted_displacement_gradients = compute_gradient(
+    jitted_strain_gradients = compute_gradient(
         output["energy"].block().values,
-        displacements,
+        strains,
         is_training=is_training,
     )
-    jitted_virial = [-cell_gradient for cell_gradient in jitted_displacement_gradients]
+    jitted_virial = [-cell_gradient for cell_gradient in jitted_strain_gradients]
 
     for v, jv in zip(virial, jitted_virial):
         assert torch.allclose(v, jv)
@@ -136,7 +152,7 @@ def test_both(is_training):
 
     capabilities = ModelCapabilities(
         length_unit="Angstrom",
-        species=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
+        atomic_types=[21, 23, 24, 27, 29, 39, 40, 41, 72, 74, 78],
         outputs={
             "energy": ModelOutput(
                 quantity="energy",
@@ -146,54 +162,55 @@ def test_both(is_training):
     )
 
     model = soap_bpnn.Model(capabilities)
-    structures = read_structures(RESOURCES_PATH / "alchemical_reduced_10.xyz")[:2]
+    systems = read_systems(
+        RESOURCES_PATH / "alchemical_reduced_10.xyz", dtype=torch.get_default_dtype()
+    )[:2]
 
-    # Here we re-create displacements and systems, otherwise torch
+    # Here we re-create strains and systems, otherwise torch
     # complains that the graph has already beeen freed in the last grad call
-    displacements = [
+    strains = [
         torch.eye(
             3, requires_grad=True, dtype=system.cell.dtype, device=system.cell.device
         )
-        for system in structures
+        for system in systems
     ]
     systems = [
         metatensor.torch.atomistic.System(
-            positions=system.positions @ displacement,
-            cell=system.cell @ displacement,
-            species=system.species,
+            positions=system.positions @ strain,
+            cell=system.cell @ strain,
+            types=system.types,
         )
-        for system, displacement in zip(structures, displacements)
+        for system, strain in zip(systems, strains)
     ]
 
     output = model(systems, {"energy": model.capabilities.outputs["energy"]})
     gradients = compute_gradient(
         output["energy"].block().values,
-        [system.positions for system in systems] + displacements,
+        [system.positions for system in systems] + strains,
         is_training=is_training,
     )
     f_and_v = [-gradient for gradient in gradients]
 
-    displacements = [
+    strains = [
         torch.eye(
             3, requires_grad=True, dtype=system.cell.dtype, device=system.cell.device
         )
-        for system in structures
+        for system in systems
     ]
     systems = [
         metatensor.torch.atomistic.System(
-            positions=system.positions @ displacement,
-            cell=system.cell @ displacement,
-            species=system.species,
+            positions=system.positions @ strain,
+            cell=system.cell @ strain,
+            types=system.types,
         )
-        for system, displacement in zip(structures, displacements)
+        for system, strain in zip(systems, strains)
     ]
 
     jitted_model = torch.jit.script(model)
     output = jitted_model(systems, {"energy": model.capabilities.outputs["energy"]})
-    print(output["energy"].block().values.requires_grad)
     jitted_gradients = compute_gradient(
         output["energy"].block().values,
-        [system.positions for system in systems] + displacements,
+        [system.positions for system in systems] + strains,
         is_training=is_training,
     )
     jitted_f_and_v = [-jitted_gradient for jitted_gradient in jitted_gradients]

@@ -3,15 +3,14 @@ graft src
 include LICENSE
 include README.md
 
-# TODO: remove once the hack is not needed anymore
-include scripts/hotfix_metatensor.py
-
+prune developer
 prune docs
 prune examples
 prune tests
 prune .github
 prune .tox
 
+exclude .codecov.yml
 exclude .gitignore
 exclude tox.ini
 exclude .readthedocs.yml

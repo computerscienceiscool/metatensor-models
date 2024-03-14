@@ -1,42 +1,50 @@
-from typing import List
+from typing import List, Tuple, Union
 
-import rascaline.torch
 import torch
+from metatensor.learn.data.dataset import _BaseDataset
 from metatensor.torch import Labels, TensorBlock, TensorMap
+
+from metatensor.models.utils.data import get_all_species
 
 
 def calculate_composition_weights(
-    dataset: torch.utils.data.Dataset, property: str
-) -> torch.Tensor:
+    datasets: Union[_BaseDataset, List[_BaseDataset]], property: str
+) -> Tuple[torch.Tensor, List[int]]:
     """Calculate the composition weights for a dataset.
-    For now, it assumes per-structure properties.
 
-    Parameters
-    ----------
-    dataset: torch.data.utils.Dataset
-        Dataset to calculate the composition weights for.
+    For now, it assumes per-system properties.
 
-    Returns
-    -------
-    torch.Tensor
-        Composition weights for the dataset.
+    :param dataset: Dataset to calculate the composition weights for.
+    :returns: Composition weights for the dataset, as well as the
+        list of species that the weights correspond to.
     """
+    if not isinstance(datasets, list):
+        datasets = [datasets]
 
-    # Get the target for each structure in the dataset
-    targets = torch.stack([sample[1][property].block().values for sample in dataset])
+    species = get_all_species(datasets)
+    # note that this is sorted, and the composition weights are sorted
+    # as well, because the species are sorted in the composition features
 
-    # Get the composition for each structure in the dataset
-    composition_calculator = rascaline.torch.AtomicComposition(per_structure=True)
-    composition_features = composition_calculator.compute(
-        [sample[0] for sample in dataset]
+    targets = torch.stack(
+        [
+            sample._asdict()[property].block().values
+            for dataset in datasets
+            for sample in dataset
+        ]
     )
-    composition_features = composition_features.keys_to_properties("species_center")
-    composition_features = composition_features.block().values
-
     targets = targets.squeeze(dim=(1, 2))  # remove component and property dimensions
 
-    regularizer = 1e-20
+    structure_list = [
+        sample._asdict()["system"] for dataset in datasets for sample in dataset
+    ]
 
+    dtype = structure_list[0].positions.dtype
+    composition_features = torch.empty((len(structure_list), len(species)), dtype=dtype)
+    for i, structure in enumerate(structure_list):
+        for j, s in enumerate(species):
+            composition_features[i, j] = torch.sum(structure.types == s)
+
+    regularizer = 1e-20
     while regularizer:
         if regularizer > 1e5:
             raise RuntimeError(
@@ -59,7 +67,7 @@ def calculate_composition_weights(
         except torch._C._LinAlgError:
             regularizer *= 10.0
 
-    return solution
+    return solution, species
 
 
 def apply_composition_contribution(
@@ -67,17 +75,9 @@ def apply_composition_contribution(
 ) -> TensorMap:
     """Apply the composition contribution to an atomic property.
 
-    Parameters
-    ----------
-    atomic_property: TensorMap
-        Atomic property to apply the composition contribution to.
-    composition_weights: torch.Tensor
-        Composition weights to apply.
-
-    Returns
-    -------
-    TensorMap
-        Atomic property with the composition contribution applied.
+    :param atomic_property: Atomic property to apply the composition contribution to.
+    :param composition_weights: Composition weights to apply.
+    :returns: Atomic property with the composition contribution applied.
     """
 
     new_keys: List[int] = []
@@ -96,8 +96,10 @@ def apply_composition_contribution(
         )
 
     new_keys_labels = Labels(
-        names=["species_center"],
-        values=torch.tensor(new_keys).reshape(-1, 1),
+        names=["center_type"],
+        values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
+            -1, 1
+        ),
     )
 
     return TensorMap(keys=new_keys_labels, blocks=new_blocks)
