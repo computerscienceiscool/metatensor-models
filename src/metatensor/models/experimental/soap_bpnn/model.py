@@ -22,14 +22,8 @@ DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
 
 class MLPMap(ModuleMap):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
-        super().__init__()
-        activation_function_name = hypers["activation_function"]
-        if activation_function_name == "SiLU":
-            self.activation_function = torch.nn.SiLU()
-        else:
-            raise ValueError(
-                f"Unsupported activation function: {activation_function_name}"
-            )
+        # hardcoded for now, but could be a hyperparameter
+        activation_function = torch.nn.SiLU()
 
         # Build a neural network for each species
         nns_per_species = []
@@ -56,11 +50,6 @@ class MLPMap(ModuleMap):
             "central_species",
             values=torch.tensor(all_species).reshape(-1, 1),
         )
-
-        # PR TODO check how to solve device issue
-        #         before the device was infered in the forward path
-        #         but now this does not work
-        #         need to now how device is generally determined
         out_properties = [
             Labels(
                 names=["properties"],
@@ -76,105 +65,23 @@ class MLPMap(ModuleMap):
 
 class LayerNormMap(ModuleMap):
     def __init__(self, all_species: List[int], n_layer: int) -> None:
-        # Initialize a layernorm for each species
+        # one layernorm for each species
         layernorm_per_species = []
         for _ in all_species:
             layernorm_per_species.append(torch.nn.LayerNorm((n_layer,)))
 
-        # Create a module dict to store the neural networks
-        self.layernorms = torch.nn.ModuleDict(
-            {
-                str(species): layer
-                for species, layer in zip(all_species, layernorm_per_species)
-            }
+        in_keys = Labels(
+            "central_species",
+            values=torch.tensor(all_species).reshape(-1, 1),
         )
-
-    def forward(self, features: TensorMap) -> TensorMap:
-        # Create a list of the blocks that are present in the features:
-        present_blocks = [
-            int(features.keys.entry(i).values.item())
-            for i in range(features.keys.values.shape[0])
+        out_properties = [
+            Labels(
+                names=["properties"],
+                values=torch.arange(n_layer).reshape(-1, 1),
+            )
+            for _ in range(len(in_keys))
         ]
-
-        new_keys: List[int] = []
-        new_blocks: List[TensorBlock] = []
-        for species_str, layer in self.layernorms.items():
-            species = int(species_str)
-            if species in present_blocks:
-                new_keys.append(species)
-                block = features.block({"center_type": species})
-                output_values = layer(block.values)
-                new_blocks.append(
-                    TensorBlock(
-                        values=output_values,
-                        samples=block.samples,
-                        components=block.components,
-                        properties=block.properties,
-                    )
-                )
-        new_keys_labels = Labels(
-            names=["center_type"],
-            values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
-                -1, 1
-            ),
-        )
-
-        return TensorMap(keys=new_keys_labels, blocks=new_blocks)
-
-
-class LinearMap(torch.nn.Module):
-    def __init__(self, all_species: List[int], n_inputs: int) -> None:
-        super().__init__()
-
-        # Build a neural network for each species
-        layer_per_species = []
-        for _ in all_species:
-            layer_per_species.append(torch.nn.Linear(n_inputs, 1))
-
-        # Create a module dict to store the neural networks
-        self.layers = torch.nn.ModuleDict(
-            {
-                str(species): layer
-                for species, layer in zip(all_species, layer_per_species)
-            }
-        )
-
-    def forward(self, features: TensorMap) -> TensorMap:
-        # Create a list of the blocks that are present in the features:
-        present_blocks = [
-            int(features.keys.entry(i).values.item())
-            for i in range(features.keys.values.shape[0])
-        ]
-
-        new_keys: List[int] = []
-        new_blocks: List[TensorBlock] = []
-        for species_str, layer in self.layers.items():
-            species = int(species_str)
-            if species in present_blocks:
-                new_keys.append(species)
-                block = features.block({"center_type": species})
-                output_values = layer(block.values)
-                new_blocks.append(
-                    TensorBlock(
-                        values=output_values,
-                        samples=block.samples,
-                        components=block.components,
-                        properties=Labels(
-                            names=["energy"],
-                            values=torch.zeros(
-                                (1, 1), dtype=torch.int32, device=block.values.device
-                            ),
-                        ),
-                    )
-                )
-        new_keys_labels = Labels(
-            names=["center_type"],
-            values=torch.tensor(new_keys, device=new_blocks[0].values.device).reshape(
-                -1, 1
-            ),
-        )
-
-        return TensorMap(keys=new_keys_labels, blocks=new_blocks)
+        super().__init__(in_keys, layernorm_per_species, out_properties)
 
 
 class Model(torch.nn.Module):
@@ -256,6 +163,14 @@ class Model(torch.nn.Module):
                     ),
                     in_features=n_inputs_last_layer,
                     out_features=1,
+                    bias=False,
+                    out_properties=[
+                        Labels(
+                            names=["energy"],
+                            values=torch.tensor([[0]]),
+                        )
+                        for _ in self.all_species
+                    ],
                 )
                 for output_name in capabilities.outputs.keys()
             }
@@ -330,7 +245,7 @@ class Model(torch.nn.Module):
                     device=self.composition_weights.device,  # type: ignore
                 ),
             ]
-        )  # type: ignore
+        )
         self.output_to_index[output_name] = len(self.output_to_index)
         # add a new linear layer to the last layers
         hypers_bpnn = self.hypers["bpnn"]
