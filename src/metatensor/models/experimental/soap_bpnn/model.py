@@ -207,6 +207,10 @@ class Model(torch.nn.Module):
 
         self.capabilities = capabilities
         self.all_species = capabilities.atomic_types
+        self.neighbor_combinations = torch.combinations(
+            torch.Tensor(self.all_species),
+            with_replacement=True,
+        ).to(torch.int)        
         self.hypers = hypers
 
         # creates a composition weight tensor that can be directly indexed by species,
@@ -280,17 +284,13 @@ class Model(torch.nn.Module):
         return_dict: Dict[str, TensorMap] = {}
 
         soap_features = self.soap_calculator(systems, selected_samples=selected_atoms)
-
         device = soap_features.block(0).values.device
-        soap_features = soap_features.keys_to_properties(
-            self.neighbor_species_1_labels.to(device)
+        pairs_comb = Labels(
+            ['neighbor_1_type', 'neighbor_2_type'],
+            values=self.neighbor_combinations
         )
-        soap_features = soap_features.keys_to_properties(
-            self.neighbor_species_2_labels.to(device)
-        )   
-
+        soap_features = soap_features.keys_to_properties(pairs_comb)
         soap_features = self.layernorm(soap_features)
-
         last_layer_features = self.bpnn(soap_features)
 
         # output the hidden features, if requested:
