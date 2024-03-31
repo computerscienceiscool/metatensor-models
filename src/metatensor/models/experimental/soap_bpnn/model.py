@@ -227,7 +227,7 @@ class Model(torch.nn.Module):
             radial_basis={"Gto": {}}, **hypers["soap"]
         )
         soap_size = (
-            len(torch.combinations(self.all_species, with_replacement=True))
+            len(torch.combinations(torch.Tensor(self.all_species), with_replacement=True))
             * hypers["soap"]["max_radial"] ** 2
             * (hypers["soap"]["max_angular"] + 1)
         )
