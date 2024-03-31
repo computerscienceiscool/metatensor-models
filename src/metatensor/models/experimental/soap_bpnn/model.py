@@ -227,7 +227,7 @@ class Model(torch.nn.Module):
             radial_basis={"Gto": {}}, **hypers["soap"]
         )
         soap_size = (
-            len(self.all_species) ** 2
+            len(torch.combinations(self.all_species, with_replacement=True))
             * hypers["soap"]["max_radial"] ** 2
             * (hypers["soap"]["max_angular"] + 1)
         )
@@ -287,7 +287,7 @@ class Model(torch.nn.Module):
         )
         soap_features = soap_features.keys_to_properties(
             self.neighbor_species_2_labels.to(device)
-        )
+        )   
 
         soap_features = self.layernorm(soap_features)
 
