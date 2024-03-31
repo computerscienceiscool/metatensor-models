@@ -11,10 +11,10 @@ from metatensor.torch.atomistic import ModelCapabilities, ModelOutput
 
 from ...utils.composition import calculate_composition_weights
 from ...utils.data import (
+    CombinedDataLoader,
     DatasetInfo,
     check_datasets,
     collate_fn,
-    combine_dataloaders,
     get_all_species,
     get_all_targets,
 )
@@ -24,8 +24,10 @@ from ...utils.io import is_exported, load, save
 from ...utils.logging import MetricLogger
 from ...utils.loss import TensorMapDictLoss
 from ...utils.merge_capabilities import merge_capabilities
-from ...utils.metrics import RMSEAccumulator
+from ...utils.metrics import MAEAccumulator, RMSEAccumulator
+from ...utils.neighbors_lists import get_system_with_neighbors_lists
 from ...utils.per_atom import average_block_by_num_atoms
+from ...utils.scaling import calculate_scaling
 from .model import DEFAULT_HYPERS, Model
 
 
@@ -162,6 +164,16 @@ def train(
 
     logger.info("Setting up data loaders")
 
+    # Calculate NLs:
+    logger.info("Calculating neighbors lists for the datasets")
+    requested_neighbor_lists = model.requested_neighbors_lists()
+    for dataset in train_datasets + validation_datasets:
+        for i in range(len(dataset)):
+            system = dataset[i].system
+            # The following line attached the neighbors lists to the system,
+            # and doesn't require to reassign the system to the dataset:
+            _ = get_system_with_neighbors_lists(system, requested_neighbor_lists)
+
     # Create dataloader for the training datasets:
     train_dataloaders = []
     for dataset in train_datasets:
@@ -173,7 +185,13 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    train_dataloader = combine_dataloaders(train_dataloaders, shuffle=True)
+    train_dataloader = CombinedDataLoader(train_dataloaders, shuffle=True)
+    # train_dataloader = train_dataloaders[0]
+
+    # scaling:
+    # TODO: this will work sub-optimally if the model is restarting with
+    # new targets (but it will still work)
+    calculate_scaling(model, train_dataloader, device)
 
     # Create dataloader for the validation datasets:
     validation_dataloaders = []
@@ -186,7 +204,7 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    validation_dataloader = combine_dataloaders(validation_dataloaders, shuffle=False)
+    validation_dataloader = CombinedDataLoader(validation_dataloaders, shuffle=False)
 
     # Extract all the possible outputs and their gradients from the training set:
     outputs_dict = get_outputs_dict(train_datasets)
@@ -204,10 +222,10 @@ def train(
         }
 
     # Create a loss function:
-    loss_fn = TensorMapDictLoss(loss_weights_dict)
+    loss_fn = TensorMapDictLoss(loss_weights_dict, reduction="sum")
 
     # Create an optimizer:
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.LBFGS(
         model.parameters(), lr=hypers_training["learning_rate"]
     )
 
@@ -226,53 +244,70 @@ def train(
     # per-atom targets:
     per_atom_targets = hypers_training["per_atom_targets"]
 
+    # model.scalings = torch.zeros_like(model.scalings)
+
     # Train the model:
     logger.info("Starting training")
     for epoch in range(hypers_training["num_epochs"]):
         train_rmse_calculator = RMSEAccumulator()
         validation_rmse_calculator = RMSEAccumulator()
+        train_mae_calculator = MAEAccumulator()
+        validation_mae_calculator = MAEAccumulator()
 
-        train_loss = 0.0
-        for batch in train_dataloader:
+        def closure():
             optimizer.zero_grad()
+            total_loss = 0.0
+            for batch in train_dataloader:
+                systems, targets = batch
 
-            systems, targets = batch
-            systems = [system.to(device=device) for system in systems]
-            targets = {key: value.to(device=device) for key, value in targets.items()}
-            predictions = evaluate_model(
-                model,
-                systems,
-                {
-                    name: tensormap.block().gradients_list()
-                    for name, tensormap in targets.items()
-                },
-                is_training=True,
-            )
-
-            # average by the number of atoms (if requested)
-            num_atoms = torch.tensor(
-                [len(s) for s in systems], device=device
-            ).unsqueeze(-1)
-            for pa_target in per_atom_targets:
-                predictions[pa_target] = TensorMap(
-                    predictions[pa_target].keys,
-                    [
-                        average_block_by_num_atoms(
-                            predictions[pa_target].block(), num_atoms
-                        )
-                    ],
-                )
-                targets[pa_target] = TensorMap(
-                    targets[pa_target].keys,
-                    [average_block_by_num_atoms(targets[pa_target].block(), num_atoms)],
+                systems = [system.to(device=device) for system in systems]
+                targets = {
+                    key: value.to(device=device) for key, value in targets.items()
+                }
+                predictions = evaluate_model(
+                    model,
+                    systems,
+                    {
+                        name: tensormap.block().gradients_list()
+                        for name, tensormap in targets.items()
+                    },
+                    is_training=True,
                 )
 
-            loss = loss_fn(predictions, targets)
-            train_loss += loss.item()
-            loss.backward()
-            optimizer.step()
-            train_rmse_calculator.update(predictions, targets)
-        finalized_train_info = train_rmse_calculator.finalize()
+                # average by the number of atoms (if requested)
+                num_atoms = torch.tensor(
+                    [len(s) for s in systems], device=device
+                ).unsqueeze(-1)
+                for pa_target in per_atom_targets:
+                    predictions[pa_target] = TensorMap(
+                        predictions[pa_target].keys,
+                        [
+                            average_block_by_num_atoms(
+                                predictions[pa_target].block(), num_atoms
+                            )
+                        ],
+                    )
+                    targets[pa_target] = TensorMap(
+                        targets[pa_target].keys,
+                        [
+                            average_block_by_num_atoms(
+                                targets[pa_target].block(), num_atoms
+                            )
+                        ],
+                    )
+
+                train_rmse_calculator.update(predictions, targets)
+                train_mae_calculator.update(predictions, targets)
+                loss = loss_fn(predictions, targets)
+                loss.backward()
+                total_loss += loss.item()
+            return total_loss
+
+        train_loss = optimizer.step(closure)
+        finalized_train_info = {
+            **train_rmse_calculator.finalize(),
+            **train_mae_calculator.finalize(),
+        }
 
         validation_loss = 0.0
         for batch in validation_dataloader:
@@ -310,7 +345,11 @@ def train(
             loss = loss_fn(predictions, targets)
             validation_loss += loss.item()
             validation_rmse_calculator.update(predictions, targets)
-        finalized_validation_info = validation_rmse_calculator.finalize()
+            validation_mae_calculator.update(predictions, targets)
+        finalized_validation_info = {
+            **validation_rmse_calculator.finalize(),
+            **validation_mae_calculator.finalize(),
+        }
 
         lr_scheduler.step(validation_loss)
 

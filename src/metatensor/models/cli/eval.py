@@ -14,7 +14,7 @@ from ..utils.errors import ArchitectureError
 from ..utils.evaluate_model import evaluate_model
 from ..utils.io import load
 from ..utils.logging import MetricLogger
-from ..utils.metrics import RMSEAccumulator
+from ..utils.metrics import MAEAccumulator, RMSEAccumulator
 from ..utils.neighbors_lists import get_system_with_neighbors_lists
 from ..utils.omegaconf import expand_dataset_config
 from .formatter import CustomHelpFormatter
@@ -149,8 +149,9 @@ def _eval_targets(
         shuffle=False,
     )
 
-    # Initialize RMSE accumulator:
+    # Initialize accumulators:
     rmse_accumulator = RMSEAccumulator()
+    mae_accumulator = MAEAccumulator()
 
     # If we're returning the predictions, we need to store them:
     if return_predictions:
@@ -163,17 +164,20 @@ def _eval_targets(
         targets = {key: value.to(device=device) for key, value in targets.items()}
         batch_predictions = evaluate_model(model, systems, options, is_training=False)
         rmse_accumulator.update(batch_predictions, targets)
+        mae_accumulator.update(batch_predictions, targets)
         if return_predictions:
             all_predictions.append(batch_predictions)
 
-    # Finalize the RMSEs
+    # Finalize the RMSEs and MAEs
     rmse_values = rmse_accumulator.finalize()
-    # print the RMSEs with MetricLogger
+    mae_values = mae_accumulator.finalize()
+    metrics = {**rmse_values, **mae_values}
+    # print the RMSEs and MAEs with MetricLogger
     metric_logger = MetricLogger(
         model_capabilities=model.capabilities(),
-        initial_metrics=rmse_values,
+        initial_metrics=metrics,
     )
-    metric_logger.log(rmse_values)
+    metric_logger.log(metrics)
 
     if return_predictions:
         # concatenate the TensorMaps
