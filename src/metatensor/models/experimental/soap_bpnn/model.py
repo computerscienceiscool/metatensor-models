@@ -292,7 +292,9 @@ class Model(torch.nn.Module):
         # output the hidden features, if requested:
         if "last_layer_features" in outputs.keys():
             last_layer_features_options = outputs["last_layer_features"]
-            out_features = last_layer_features.keys_to_properties("center_type")
+            out_features = last_layer_features.keys_to_properties(
+                self.center_type_labels.to(device)
+            )
             if last_layer_features_options.per_atom:
                 # this operation should just remove the center_type label
                 return_dict["last_layer_features"] = out_features
