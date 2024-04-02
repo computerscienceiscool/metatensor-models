@@ -231,7 +231,7 @@ class Model(torch.nn.Module):
             radial_basis={"Gto": {}}, **hypers["soap"]
         )
         soap_size = (
-            len(torch.combinations(torch.Tensor(self.all_species), with_replacement=True))
+            (len(self.all_species) * (len(self.all_species) + 1) // 2)
             * hypers["soap"]["max_radial"] ** 2
             * (hypers["soap"]["max_angular"] + 1)
         )
@@ -245,14 +245,15 @@ class Model(torch.nn.Module):
             self.layernorm = torch.nn.Identity()
 
         self.bpnn = MLPMap(self.all_species, hypers_bpnn)
-        self.neighbor_species_1_labels = Labels(
-            names=["neighbor_1_type"],
-            values=torch.tensor(self.all_species).reshape(-1, 1),
+
+        self.neighbor_species_labels = Labels(
+            names=["neighbor_1_type", "neighbor_2_type"],
+            values=torch.combinations(
+                torch.tensor(self.all_species, dtype=torch.int),
+                with_replacement=True,
+            ),
         )
-        self.neighbor_species_2_labels = Labels(
-            names=["neighbor_2_type"],
-            values=torch.tensor(self.all_species).reshape(-1, 1),
-        )
+
         self.center_type_labels = Labels(
             names=["center_type"],
             values=torch.tensor(self.all_species).reshape(-1, 1),
@@ -285,11 +286,10 @@ class Model(torch.nn.Module):
 
         soap_features = self.soap_calculator(systems, selected_samples=selected_atoms)
         device = soap_features.block(0).values.device
-        pairs_comb = Labels(
-            ['neighbor_1_type', 'neighbor_2_type'],
-            values=self.neighbor_combinations
+        soap_features = soap_features.keys_to_properties(
+            self.neighbor_species_labels.to(device)
         )
-        soap_features = soap_features.keys_to_properties(pairs_comb)
+
         soap_features = self.layernorm(soap_features)
         last_layer_features = self.bpnn(soap_features)
 
