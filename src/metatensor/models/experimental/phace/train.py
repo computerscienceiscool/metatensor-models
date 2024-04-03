@@ -226,7 +226,7 @@ def train(
 
     # Create an optimizer:
     optimizer = torch.optim.LBFGS(
-        model.parameters(), lr=hypers_training["learning_rate"]
+        model.parameters(), lr=hypers_training["learning_rate"], line_search_fn="strong_wolfe"
     )
 
     # Create a scheduler:
@@ -301,6 +301,7 @@ def train(
                 loss = loss_fn(predictions, targets)
                 loss.backward()
                 total_loss += loss.item()
+            print(total_loss)
             return total_loss
 
         train_loss = optimizer.step(closure)
@@ -391,5 +392,10 @@ def train(
                     "without improvement."
                 )
                 break
+
+        if epoch == 20:
+            optimizer = torch.optim.LBFGS(
+                model.parameters(), lr=hypers_training["learning_rate"]
+            )
 
     return model

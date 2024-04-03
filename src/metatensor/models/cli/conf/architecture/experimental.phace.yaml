@@ -3,12 +3,12 @@ base_precision: 32
 model:
   nu_max: 4
   n_message_passing_layers: 1
-  cutoff: 5.0
+  cutoff_radius: 6.0
   n_element_channels: 8
   radial_basis:
     mlp: true
     type: physical
-    E_max: 70.0
+    E_max: 100.0
 
 training:
   batch_size: 8

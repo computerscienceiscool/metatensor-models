@@ -132,10 +132,10 @@ def get_cartesian_vectors(
         values=direction_vectors.unsqueeze(dim=-1),
         samples=Labels(
             names=[
-                "structure",
-                "center",
+                "system",
+                "atom",
                 "neighbor",
-                "species_center",
+                "center_type",
                 "species_neighbor",
                 "cell_x",
                 "cell_y",
