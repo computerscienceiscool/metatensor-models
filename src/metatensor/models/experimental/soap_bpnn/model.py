@@ -248,7 +248,7 @@ class Model(torch.nn.Module):
         if hypers_bpnn["layernorm"]:
             self.layernorm = LayerNormMap(self.all_species, soap_size)
         else:
-            self.layernorm = torch.nn.Identity()
+            self.layernorm = Identity()
 
         self.bpnn = MLPMap(self.all_species, hypers_bpnn)
 
