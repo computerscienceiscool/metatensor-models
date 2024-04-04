@@ -21,6 +21,14 @@ DEFAULT_HYPERS = OmegaConf.to_container(
 DEFAULT_MODEL_HYPERS = DEFAULT_HYPERS["model"]
 
 
+class Identity(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x: TensorMap) -> TensorMap:
+        return x
+
+
 class MLPMap(torch.nn.Module):
     def __init__(self, all_species: List[int], hypers: dict) -> None:
         super().__init__()
