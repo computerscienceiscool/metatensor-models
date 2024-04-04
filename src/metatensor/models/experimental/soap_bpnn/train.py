@@ -184,7 +184,9 @@ def train(
                 collate_fn=collate_fn,
             )
         )
-    train_dataloader = combine_dataloaders(train_dataloaders, shuffle=True)
+    # train_dataloader = combine_dataloaders(train_dataloaders, shuffle=True)
+    # HOT FIX FOR FARADAY DISCUSSIONS
+    train_dataloader = train_dataloaders[0]
 
     # Create dataloader for the validation datasets:
     validation_dataloaders = []
@@ -213,6 +215,10 @@ def train(
         loss_weights_dict[output_name] = {
             value_or_gradient: 1.0 for value_or_gradient in value_or_gradient_list
         }
+
+    # HOT FIX FOR FARADAY DISCUSSIONS
+    if "positions" in loss_weights_dict["energy"].keys():
+        loss_weights_dict["energy"]["positions"] = 0.01
 
     # Create a loss function:
     loss_fn = TensorMapDictLoss(loss_weights_dict)
