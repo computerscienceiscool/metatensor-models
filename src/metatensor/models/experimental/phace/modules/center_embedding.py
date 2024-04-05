@@ -19,7 +19,13 @@ class CenterEmbedding(torch.nn.Module):
         # TODO: the normalization is wrong here
         self.embeddings = Linear(len(all_species), n_channels)
 
+        self.register_buffer("species_to_species_index", torch.zeros(max(all_species) + 1, dtype=torch.int))
+        self.species_to_species_index[all_species] = torch.arange(len(all_species), dtype=torch.int)
+
     def forward(self, equivariants: TensorMap):
+
+        samples = equivariants.block(0).samples.column("center_type")
+        channel_weights = self.embeddings.linear_layer.weight.T[self.species_to_species_index[samples]]
 
         keys: List[torch.Tensor] = (
             []
@@ -29,13 +35,6 @@ class CenterEmbedding(torch.nn.Module):
         for key, block in equivariants.items():
             assert block.values.shape[-1] % self.n_channels == 0
             n_repeats = block.values.shape[-1] // self.n_channels
-            samples = block.samples
-            one_hot_ai = metatensor.torch.one_hot(
-                samples, self.species_center_labels
-            )  # TODO: perhaps can be done only once outside the loop
-            channel_weights = self.embeddings(
-                one_hot_ai.to(dtype=block.values.dtype).to(device=block.values.device)
-            )
             new_block_values = block.values * channel_weights.repeat(
                 1, n_repeats
             ).unsqueeze(1)

@@ -230,8 +230,8 @@ def cg_combine_l1l2L(tensor12, cg_tensor):
     return out_tensor.swapaxes(1, 2)
 
 
-def get_cg_coefficients(l_max, device):
-    cg_object = ClebschGordanReal(device)
+def get_cg_coefficients(l_max):
+    cg_object = ClebschGordanReal()
     for l1 in range(l_max + 1):
         for l2 in range(l_max + 1):
             for L in range(abs(l1 - l2), min(l1 + l2, l_max) + 1):
@@ -241,9 +241,8 @@ def get_cg_coefficients(l_max, device):
 
 class ClebschGordanReal:
 
-    def __init__(self, device):
+    def __init__(self):
         self._cgs = {}
-        self.device = device
 
     def _add(self, l1, l2, L):
         # print(f"Adding new CGs with l1={l1}, l2={l2}, L={L}")
@@ -296,7 +295,7 @@ class ClebschGordanReal:
         # print()
         # print()
         self._cgs[(l1, l2, L)] = (
-            torch.tensor(rcg).type(torch.get_default_dtype()).to(self.device)
+            torch.tensor(rcg).type(torch.get_default_dtype())
         )
 
     def get(self, key):

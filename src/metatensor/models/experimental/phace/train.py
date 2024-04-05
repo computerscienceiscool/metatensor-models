@@ -164,11 +164,13 @@ def train(
 
     logger.info("Setting up data loaders")
 
+    import tqdm
+
     # Calculate NLs:
     logger.info("Calculating neighbors lists for the datasets")
     requested_neighbor_lists = model.requested_neighbors_lists()
     for dataset in train_datasets + validation_datasets:
-        for i in range(len(dataset)):
+        for i in tqdm.tqdm(range(len(dataset))):
             system = dataset[i].system
             # The following line attached the neighbors lists to the system,
             # and doesn't require to reassign the system to the dataset:
@@ -246,8 +248,6 @@ def train(
     # per-atom targets:
     per_atom_targets = hypers_training["per_atom_targets"]
 
-    # model.scalings = torch.zeros_like(model.scalings)
-
     # Train the model:
     logger.info("Starting training")
     for epoch in range(hypers_training["num_epochs"]):
@@ -303,6 +303,7 @@ def train(
                 loss = loss_fn(predictions, targets)
                 loss.backward()
                 total_loss += loss.item()
+            print(total_loss)
             return total_loss
 
         train_loss = optimizer.step(closure)
