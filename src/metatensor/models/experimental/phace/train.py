@@ -246,8 +246,6 @@ def train(
     # per-atom targets:
     per_atom_targets = hypers_training["per_atom_targets"]
 
-    # model.scalings = torch.zeros_like(model.scalings)
-
     # Train the model:
     logger.info("Starting training")
     for epoch in range(hypers_training["num_epochs"]):

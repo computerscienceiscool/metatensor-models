@@ -21,6 +21,13 @@ class CenterEmbedding(torch.nn.Module):
 
     def forward(self, equivariants: TensorMap):
 
+        samples = equivariants.block(0).samples
+        one_hot_ai = metatensor.torch.one_hot(
+            samples,
+            self.species_center_labels.to(device=equivariants.keys.values.device)
+        )
+        channel_weights = self.embeddings(one_hot_ai.to(dtype=equivariants.block(0).values.dtype))
+
         keys: List[torch.Tensor] = (
             []
         )  # Can perhaps be precomputed or reused from equivariants?
@@ -29,13 +36,6 @@ class CenterEmbedding(torch.nn.Module):
         for key, block in equivariants.items():
             assert block.values.shape[-1] % self.n_channels == 0
             n_repeats = block.values.shape[-1] // self.n_channels
-            samples = block.samples
-            one_hot_ai = metatensor.torch.one_hot(
-                samples, self.species_center_labels
-            )  # TODO: perhaps can be done only once outside the loop
-            channel_weights = self.embeddings(
-                one_hot_ai.to(dtype=block.values.dtype).to(device=block.values.device)
-            )
             new_block_values = block.values * channel_weights.repeat(
                 1, n_repeats
             ).unsqueeze(1)

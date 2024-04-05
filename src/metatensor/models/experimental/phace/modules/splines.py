@@ -8,7 +8,6 @@ def generate_splines(
     max_index,
     cutoff_radius,
     requested_accuracy=1e-8,
-    device="cpu",
 ):
     """Spline generator for tabulated radial integrals.
 
@@ -53,7 +52,6 @@ def generate_splines(
         value_evaluator_2D,
         derivative_evaluator_2D,
         requested_accuracy,
-        device=device,
     )
 
     return dynamic_spliner
@@ -62,7 +60,7 @@ def generate_splines(
 class DynamicSpliner(torch.nn.Module):
 
     def __init__(
-        self, start, stop, values_fn, derivatives_fn, requested_accuracy, device
+        self, start, stop, values_fn, derivatives_fn, requested_accuracy
     ) -> None:
         super().__init__()
 
@@ -73,10 +71,10 @@ class DynamicSpliner(torch.nn.Module):
         self.requested_accuracy = requested_accuracy
 
         # initialize spline with 11 points
-        positions = torch.linspace(start, stop, 11)
-        self.spline_positions = positions
-        self.spline_values = values_fn(positions)
-        self.spline_derivatives = derivatives_fn(positions)
+        positions = torch.linspace(start, stop, 11, dtype=torch.float64)
+        self.register_buffer("spline_positions", positions)
+        self.register_buffer("spline_values", values_fn(positions))
+        self.register_buffer("spline_derivatives", derivatives_fn(positions))
 
         self.number_of_custom_dimensions = len(self.spline_values.shape) - 1
 
@@ -91,7 +89,7 @@ class DynamicSpliner(torch.nn.Module):
 
             half_step = (self.spline_positions[1] - self.spline_positions[0]) / 2
             intermediate_positions = torch.linspace(
-                self.start + half_step, self.stop - half_step, n_intermediate_positions
+                self.start + half_step, self.stop - half_step, n_intermediate_positions, dtype=torch.float64
             )
 
             estimated_values = self.compute(intermediate_positions)
@@ -124,9 +122,9 @@ class DynamicSpliner(torch.nn.Module):
             self.spline_values = concatenated_values[sort_indices]
             self.spline_derivatives = concatenated_derivatives[sort_indices]
 
-        self.spline_positions = self.spline_positions.to(device)
-        self.spline_values = self.spline_values.to(device)
-        self.spline_derivatives = self.spline_derivatives.to(device)
+        self.spline_positions = self.spline_positions
+        self.spline_values = self.spline_values
+        self.spline_derivatives = self.spline_derivatives
 
     def compute(self, positions):
         x = positions

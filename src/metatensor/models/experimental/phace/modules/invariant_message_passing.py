@@ -9,7 +9,7 @@ from .radial_basis import RadialBasis
 class InvariantMessagePasser(torch.nn.Module):
 
     def __init__(
-        self, hypers: Dict, all_species: List[int], device: str = "cpu"
+        self, hypers: Dict, all_species: List[int]
     ) -> None:
         super().__init__()
 
@@ -18,7 +18,7 @@ class InvariantMessagePasser(torch.nn.Module):
         hypers["radial_basis"]["normalize"] = hypers["normalize"]
         hypers["radial_basis"]["n_element_channels"] = hypers["n_element_channels"]
         self.radial_basis_calculator = RadialBasis(
-            hypers["radial_basis"], all_species, device
+            hypers["radial_basis"], all_species
         )
         self.n_max_l = self.radial_basis_calculator.n_max_l
         self.k_max_l = [hypers["n_element_channels"] * n_max for n_max in self.n_max_l]
