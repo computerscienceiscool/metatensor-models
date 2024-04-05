@@ -1,12 +1,12 @@
-seed: 2
-base_precision: 32
+seed: 20
+base_precision: 64
 device: cuda
 
 architecture:
   name: experimental.phace
   training:
     batch_size: 100
-    num_epochs: 1000
+    num_epochs: 1
 
 training_set:
   systems:

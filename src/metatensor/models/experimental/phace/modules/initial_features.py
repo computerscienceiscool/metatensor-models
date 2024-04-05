@@ -20,21 +20,21 @@ class InitialFeatures(torch.nn.Module):
             ).to(device=structures.device),
             components=[
                 Labels(
-                    names=["o3_mu"],
+                    names=["m"],
                     values=torch.tensor([[0]], device=structures.device),
                 ).to(device=structures.device)
             ],
             properties=Labels(
-                "properties",
-                torch.arange(
+                names=["properties"],
+                values=torch.arange(
                     self.n_channels, dtype=torch.int, device=structures.device
-                ).unsqueeze(-1),
+                ).reshape(self.n_channels, 1),
             ),
         )
         return TensorMap(
             keys=Labels(
-                names=["nu", "o3_lambda", "o3_sigma"],
-                values=torch.tensor([[0, 0, 1]], device=structures.device),
+                names=["o3_lambda", "o3_sigma"],
+                values=torch.tensor([[0, 1]], device=structures.device),
             ),
             blocks=[block],
         )

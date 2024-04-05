@@ -1,22 +1,20 @@
-import metatensor.torch
 import torch
 from metatensor.torch import Labels
 
-from .LE import get_le_spliner
-from .normalize import Linear, Normalizer
+from .linear import Linear
 from .physical_LE import get_physical_le_spliner
 
 
 class RadialBasis(torch.nn.Module):
 
-    def __init__(self, hypers, all_species) -> None:
+    def __init__(self, hypers, all_species, device) -> None:
         super().__init__()
 
         lengthscales = torch.zeros((max(all_species) + 1))
         for species in all_species:
             lengthscales[species] = 0.0
         self.n_max_l, self.spliner = get_physical_le_spliner(
-            hypers["E_max"], hypers["r_cut"], hypers["normalize"]
+            hypers["E_max"], hypers["r_cut"], hypers["normalize"], device=device
         )
         self.lengthscales = torch.nn.Parameter(lengthscales)
 
@@ -31,14 +29,9 @@ class RadialBasis(torch.nn.Module):
             self.radial_mlps = torch.nn.ModuleDict(
                 {
                     str(l): torch.nn.Sequential(
-                        Normalizer([0]),
                         Linear(self.n_max_l[l], 64),
-                        Normalizer([0, 1]),
                         torch.nn.SiLU(),
-                        Normalizer([0, 1]),
                         Linear(64, self.n_max_l[l] * self.n_channels),
-                        Normalizer([0, 1]),
-                        # Linear(self.n_max_l[l], self.n_max_l[l]*self.n_channels),
                     )
                     for l in range(self.l_max + 1)
                 }

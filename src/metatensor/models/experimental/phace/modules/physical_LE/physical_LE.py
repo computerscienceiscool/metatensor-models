@@ -26,7 +26,7 @@ def dc(n, x):
     return -np.pi * (n + 0.5) * np.sin(np.pi * (n + 0.5) * x / 10.0) / 10.0
 
 
-def get_physical_le_spliner(E_max, r_cut, normalize):
+def get_physical_le_spliner(E_max, r_cut, normalize, device):
 
     l_max = 50
     n_max = 50
@@ -112,8 +112,8 @@ def get_physical_le_spliner(E_max, r_cut, normalize):
         function_for_splining_index_derivative,
         np.sum(n_max_l),
         a,
+        device=device,
     )
-    # print("Number of spline points:", len(spliner.spline_positions))
 
     n_max_l = [int(n_max) for n_max in n_max_l]
     return n_max_l, spliner

@@ -4,26 +4,39 @@ import metatensor.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
 
-from .normalize import Linear, Normalizer
+from .linear import Linear
 
 
 class CenterEmbedding(torch.nn.Module):
 
-    def __init__(self, n_channels):
+    def __init__(self, all_species, n_channels):
         super().__init__()
         self.n_channels = n_channels
+        self.species_center_labels = Labels(
+            names=["center_type"],
+            values=torch.tensor(all_species, dtype=torch.int).unsqueeze(1),
+        )
+        # TODO: the normalization is wrong here
+        self.embeddings = Linear(len(all_species), n_channels)
 
-    def forward(
-        self, equivariants: TensorMap, center_embeddings: torch.Tensor
-    ) -> TensorMap:
+    def forward(self, equivariants: TensorMap):
 
-        keys: List[torch.Tensor] = []
+        keys: List[torch.Tensor] = (
+            []
+        )  # Can perhaps be precomputed or reused from equivariants?
         blocks: List[TensorBlock] = []
 
         for key, block in equivariants.items():
             assert block.values.shape[-1] % self.n_channels == 0
             n_repeats = block.values.shape[-1] // self.n_channels
-            new_block_values = block.values * center_embeddings.repeat(
+            samples = block.samples
+            one_hot_ai = metatensor.torch.one_hot(
+                samples, self.species_center_labels
+            )  # TODO: perhaps can be done only once outside the loop
+            channel_weights = self.embeddings(
+                one_hot_ai.to(dtype=block.values.dtype).to(device=block.values.device)
+            )
+            new_block_values = block.values * channel_weights.repeat(
                 1, n_repeats
             ).unsqueeze(1)
             keys.append(key.values)
@@ -38,7 +51,7 @@ class CenterEmbedding(torch.nn.Module):
 
         return TensorMap(
             keys=Labels(
-                names=["nu", "o3_lambda", "o3_sigma"],
+                names=["o3_lambda", "o3_sigma"],
                 values=torch.stack(keys).to(equivariants.keys.values.device),
             ),
             blocks=blocks,

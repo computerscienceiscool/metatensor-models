@@ -8,6 +8,7 @@ def generate_splines(
     max_index,
     cutoff_radius,
     requested_accuracy=1e-8,
+    device="cpu",
 ):
     """Spline generator for tabulated radial integrals.
 
@@ -52,26 +53,30 @@ def generate_splines(
         value_evaluator_2D,
         derivative_evaluator_2D,
         requested_accuracy,
+        device=device,
     )
+
     return dynamic_spliner
 
 
 class DynamicSpliner(torch.nn.Module):
 
     def __init__(
-        self, start, stop, values_fn, derivatives_fn, requested_accuracy
+        self, start, stop, values_fn, derivatives_fn, requested_accuracy, device
     ) -> None:
         super().__init__()
 
         self.start = start
         self.stop = stop
+        self.values_fn = values_fn
+        self.derivatives_fn = derivatives_fn
+        self.requested_accuracy = requested_accuracy
 
-        # initialize spline with 11 points; the spline calculation
-        # is performed in double precision
-        positions = torch.linspace(start, stop, 11, dtype=torch.float64)
-        self.register_buffer("spline_positions", positions)
-        self.register_buffer("spline_values", values_fn(positions))
-        self.register_buffer("spline_derivatives", derivatives_fn(positions))
+        # initialize spline with 11 points
+        positions = torch.linspace(start, stop, 11)
+        self.spline_positions = positions
+        self.spline_values = values_fn(positions)
+        self.spline_derivatives = derivatives_fn(positions)
 
         self.number_of_custom_dimensions = len(self.spline_values.shape) - 1
 
@@ -86,14 +91,11 @@ class DynamicSpliner(torch.nn.Module):
 
             half_step = (self.spline_positions[1] - self.spline_positions[0]) / 2
             intermediate_positions = torch.linspace(
-                self.start + half_step,
-                self.stop - half_step,
-                n_intermediate_positions,
-                dtype=torch.float64,
+                self.start + half_step, self.stop - half_step, n_intermediate_positions
             )
 
             estimated_values = self.compute(intermediate_positions)
-            new_values = values_fn(intermediate_positions)
+            new_values = self.values_fn(intermediate_positions)
 
             mean_absolute_error = torch.mean(torch.abs(estimated_values - new_values))
             mean_relative_error = torch.mean(
@@ -101,12 +103,12 @@ class DynamicSpliner(torch.nn.Module):
             )
 
             if (
-                mean_absolute_error < requested_accuracy
-                or mean_relative_error < requested_accuracy
+                mean_absolute_error < self.requested_accuracy
+                or mean_relative_error < self.requested_accuracy
             ):
                 break
 
-            new_derivatives = derivatives_fn(intermediate_positions)
+            new_derivatives = self.derivatives_fn(intermediate_positions)
 
             concatenated_positions = torch.cat(
                 [self.spline_positions, intermediate_positions], dim=0
@@ -122,9 +124,9 @@ class DynamicSpliner(torch.nn.Module):
             self.spline_values = concatenated_values[sort_indices]
             self.spline_derivatives = concatenated_derivatives[sort_indices]
 
-        self.spline_positions = self.spline_positions.to(torch.get_default_dtype())
-        self.spline_values = self.spline_values.to(torch.get_default_dtype())
-        self.spline_derivatives = self.spline_derivatives.to(torch.get_default_dtype())
+        self.spline_positions = self.spline_positions.to(device)
+        self.spline_values = self.spline_values.to(device)
+        self.spline_derivatives = self.spline_derivatives.to(device)
 
     def compute(self, positions):
         x = positions

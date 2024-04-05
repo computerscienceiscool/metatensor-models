@@ -18,7 +18,9 @@ class Precomputer(torch.nn.Module):
         cells,
         species,
         cell_shifts,
+        centers,
         pairs,
+        structure_centers,
         structure_pairs,
         structure_offsets,
     ):
@@ -27,7 +29,9 @@ class Precomputer(torch.nn.Module):
             cells,
             species,
             cell_shifts,
+            centers,
             pairs,
+            structure_centers,
             structure_pairs,
             structure_offsets,
         )
@@ -52,16 +56,16 @@ class Precomputer(torch.nn.Module):
                 samples=cartesian_vectors.samples,
                 components=[
                     Labels(
-                        names=("o3_mu",),
+                        names=("m",),
                         values=torch.arange(
                             start=-l, end=l + 1, dtype=torch.int32
                         ).reshape(2 * l + 1, 1),
                     ).to(device=cartesian_vectors.values.device)
                 ],
                 properties=Labels(
-                    names=["_"],
-                    values=torch.zeros(
-                        1, 1, dtype=torch.int32, device=cartesian_vectors.values.device
+                    names=["properties"],
+                    values=torch.tensor(
+                        [[0]], dtype=torch.int32, device=cartesian_vectors.values.device
                     ),
                 ),
             )
@@ -82,8 +86,8 @@ class Precomputer(torch.nn.Module):
             samples=cartesian_vectors.samples,
             components=[],
             properties=Labels(
-                names=["_"],
-                values=torch.zeros(1, 1, dtype=torch.int32, device=r.device),
+                names=["properties"],
+                values=torch.tensor([[0]], dtype=torch.int, device=r.device),
             ),
         )
 
@@ -91,7 +95,15 @@ class Precomputer(torch.nn.Module):
 
 
 def get_cartesian_vectors(
-    positions, cells, species, cell_shifts, pairs, structure_pairs, structure_offsets
+    positions,
+    cells,
+    species,
+    cell_shifts,
+    centers,
+    pairs,
+    structure_centers,
+    structure_pairs,
+    structure_offsets,
 ):
     """
     Wraps direction vectors into TensorBlock object with metadata information
@@ -151,8 +163,8 @@ def get_cartesian_vectors(
         ],
         properties=Labels(
             names=["_"],
-            values=torch.zeros(
-                1, 1, dtype=torch.int32, device=direction_vectors.device
+            values=torch.tensor(
+                [[0]], dtype=torch.int32, device=direction_vectors.device
             ),
         ),
     )
