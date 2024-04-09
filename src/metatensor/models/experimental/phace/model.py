@@ -101,7 +101,6 @@ class Model(torch.nn.Module):
 
         self.cutoff_radius = hypers["cutoff_radius"]
         self.name = "phace"
-        self.hypers = hypers
 
     def forward(
         self,
@@ -187,6 +186,7 @@ class Model(torch.nn.Module):
 
         return total_energies
 
+    @torch.jit.export
     def set_composition_weights(
         self,
         output_name: str,
@@ -202,6 +202,7 @@ class Model(torch.nn.Module):
             device=self.composition_weights.device,  # type: ignore
         )
 
+    @torch.jit.export
     def add_output(self, output_name: str) -> None:
         """Add a new output to the model."""
         # add a new row to the composition weights tensor
@@ -218,13 +219,15 @@ class Model(torch.nn.Module):
         )  # type: ignore
         self.output_to_index[output_name] = len(self.output_to_index)
         # add a new linear layer to the last layers
-        hypers_bpnn = self.hypers["bpnn"]
-        if hypers_bpnn["num_hidden_layers"] == 0:
-            n_inputs_last_layer = hypers_bpnn["input_size"]
-        else:
-            n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
-        self.last_layers[output_name] = LinearMap(self.all_species, n_inputs_last_layer)
+        #### TODO: THIS IS SO WRONG!!!
+        # hypers_bpnn = self.hypers["bpnn"]
+        # if hypers_bpnn["num_hidden_layers"] == 0:
+        #     n_inputs_last_layer = hypers_bpnn["input_size"]
+        # else:
+        #     n_inputs_last_layer = hypers_bpnn["num_neurons_per_layer"]
+        # self.last_layers[output_name] = LinearMap(self.all_species, n_inputs_last_layer)
 
+    @torch.jit.export
     def requested_neighbors_lists(
         self,
     ) -> List[NeighborsListOptions]:

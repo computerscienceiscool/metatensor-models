@@ -245,7 +245,10 @@ def _get_capabilities(
     model: Union[torch.nn.Module, torch.jit._script.RecursiveScriptModule]
 ):
     if is_exported(model):
-        return model.capabilities()
+        try:
+            return model.capabilities()
+        except TypeError:
+            return model.capabilities
     else:
         return model.capabilities
 
@@ -256,13 +259,18 @@ def _get_model_outputs(
     targets: List[str],
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
-        # put together an EvaluationOptions object
-        options = ModelEvaluationOptions(
-            length_unit="",  # this is only needed for unit conversions in MD engines
-            outputs={key: _get_capabilities(model).outputs[key] for key in targets},
-        )
-        # we check consistency here because this could be called from eval
-        return model(systems, options, check_consistency=True)
+        try:
+            # put together an EvaluationOptions object
+            options = ModelEvaluationOptions(
+                length_unit="",  # this is only needed for unit conversions in MD engines
+                outputs={key: _get_capabilities(model).outputs[key] for key in targets},
+            )
+            # we check consistency here because this could be called from eval
+            return model(systems, options, check_consistency=True)
+        except RuntimeError:
+            return model(
+                systems, {key: _get_capabilities(model).outputs[key] for key in targets}
+            )
     else:
         return model(
             systems, {key: _get_capabilities(model).outputs[key] for key in targets}

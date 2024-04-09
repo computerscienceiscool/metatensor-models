@@ -94,6 +94,8 @@ def train(
         for output_name in novel_capabilities.outputs.keys():
             model.add_output(output_name)
 
+    torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
+    model = torch.jit.script(model)
     model_capabilities = model.capabilities
 
     # Perform checks on the datasets:
@@ -376,8 +378,14 @@ def train(
             )
 
         if epoch % hypers_training["checkpoint_interval"] == 0:
+            non_scripted_model = Model(
+                capabilities=model_capabilities,
+                hypers=hypers["model"],
+            ).to(device=device, dtype=dtype)
+            non_scripted_model.hypers = hypers["model"]
+            non_scripted_model.load_state_dict(model.state_dict())
             save(
-                model,
+                non_scripted_model,
                 Path(output_dir) / f"model_{epoch}.ckpt",
             )
 
@@ -400,4 +408,11 @@ def train(
                 model.parameters(), lr=hypers_training["learning_rate"]
             )
 
-    return model
+    non_scripted_model = Model(
+        capabilities=model_capabilities,
+        hypers=hypers["model"],
+    ).to(device=device, dtype=dtype)
+    non_scripted_model.load_state_dict(model.state_dict())
+    non_scripted_model.hypers = hypers["model"]
+
+    return non_scripted_model

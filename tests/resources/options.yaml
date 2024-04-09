@@ -6,7 +6,7 @@ architecture:
   name: experimental.phace
   training:
     batch_size: 100
-    num_epochs: 1
+    num_epochs: 2
 
 training_set:
   systems:
