@@ -19,14 +19,13 @@ class CenterEmbedding(torch.nn.Module):
         # TODO: the normalization is wrong here
         self.embeddings = Linear(len(all_species), n_channels)
 
+        self.register_buffer("species_to_species_index", torch.zeros(max(all_species) + 1, dtype=torch.int))
+        self.species_to_species_index[all_species] = torch.arange(len(all_species), dtype=torch.int)
+
     def forward(self, equivariants: TensorMap):
 
-        samples = equivariants.block(0).samples
-        one_hot_ai = metatensor.torch.one_hot(
-            samples,
-            self.species_center_labels.to(device=equivariants.keys.values.device)
-        )
-        channel_weights = self.embeddings(one_hot_ai.to(dtype=equivariants.block(0).values.dtype))
+        samples = equivariants.block(0).samples.column("center_type")
+        channel_weights = self.embeddings.linear_layer.weight.T[self.species_to_species_index[samples]]
 
         keys: List[torch.Tensor] = (
             []

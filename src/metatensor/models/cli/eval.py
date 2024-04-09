@@ -144,7 +144,7 @@ def _eval_targets(
     # Create a dataloader
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=1,  # TODO: allow to set from outside!!
+        batch_size=32,  # TODO: allow to set from outside!!
         collate_fn=collate_fn,
         shuffle=False,
     )

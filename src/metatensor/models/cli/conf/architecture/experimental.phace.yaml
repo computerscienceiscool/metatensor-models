@@ -1,18 +1,17 @@
-base_precision: 32
+base_precision: 64
 
 model:
   nu_max: 4
-  n_message_passing_layers: 1
   cutoff_radius: 6.0
-  n_element_channels: 8
+  n_element_channels: 16
   radial_basis:
     mlp: true
     type: physical
-    E_max: 100.0
+    E_max: 70.0
 
 training:
   batch_size: 8
-  num_epochs: 100
+  num_epochs: 1000
   learning_rate: 0.1
   early_stopping_patience: 100
   scheduler_patience: 10

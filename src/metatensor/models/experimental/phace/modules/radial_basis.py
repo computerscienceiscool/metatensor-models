@@ -58,7 +58,7 @@ class RadialBasis(torch.nn.Module):
                 radial_basis_after_mlp.append(radial_mlp_l(radial_basis[l]))
             radial_basis = radial_basis_after_mlp
         else:
-            radial_basis = radial_basis
+            radial_basis = [radial_basis[l].repeat(1, self.n_channels) for l in range(self.l_max+1)]
 
         return radial_basis
 
