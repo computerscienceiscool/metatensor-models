@@ -48,12 +48,11 @@ class Model(torch.nn.Module):
         n_max = self.invariant_message_passer.n_max_l
         self.l_max = len(n_max) - 1
         self.k_max_l = [n_channels * n_max[l] for l in range(self.l_max + 1)]
-        print("k_max_l", self.k_max_l)
 
-        cgs = get_cg_coefficients(self.l_max)
+        cgs = get_cg_coefficients(self.l_max, sparse=True)
         cgs = {
-            str(l1) + "_" + str(l2) + "_" + str(L): tensor
-            for (l1, l2, L), tensor in cgs._cgs.items()
+            str(l1) + "_" + str(l2): tensors
+            for (l1, l2), tensors in cgs._cgs.items()
         }
         irreps_spex = [(l, 1) for l in range(self.l_max + 1)]
         self.precomputer = Precomputer(self.l_max, normalize=True)

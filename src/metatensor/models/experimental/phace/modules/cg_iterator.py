@@ -1,9 +1,11 @@
 from typing import Dict, List, Tuple
 
+import mops.torch.reference_implementations
 import numpy as np
 import torch
 import wigners
 from metatensor.torch import Labels, TensorBlock, TensorMap
+import mops.torch
 
 from .tensor_sum import TensorAdd
 from .linear import Linear
@@ -138,14 +140,20 @@ class CGIteration(torch.nn.Module):
 
     def forward(self, features_1: TensorMap, features_2: TensorMap):
         # handle dtype and device of the cgs
-        if self.cgs["0_0_0"].device != features_1.device:
+        if self.cgs["0_0"]["indices_a"].device != features_1.device:
             self.cgs = {
-                key: value.to(device=features_1.device)
+                key: {
+                    key2: value2.to(device=features_1.device)
+                    for key2, value2 in value.items()
+                }
                 for key, value in self.cgs.items()
             }
-        if self.cgs["0_0_0"].dtype != features_1.dtype:
+        if self.cgs["0_0"]["indices_a"].dtype != features_1.dtype:
             self.cgs = {
-                key: value.to(dtype=features_1.block(0).values.dtype)
+                key: {
+                    key2: (value2.to(dtype=features_1.dtype) if key2 == "C" else value2)
+                    for key2, value2 in value.items()
+                }
                 for key, value in self.cgs.items()
             }
 
@@ -161,22 +169,37 @@ class CGIteration(torch.nn.Module):
                 min_size = min(block_ls_1.values.shape[2], block_ls_2.values.shape[2])
                 tensor1 = block_ls_1.values[:, :, :min_size]
                 tensor2 = block_ls_2.values[:, :, :min_size]
-                tensor12 = tensor1.swapaxes(1, 2).unsqueeze(3) * tensor2.swapaxes(
-                    1, 2
-                ).unsqueeze(2)
-                tensor12 = tensor12.reshape(tensor12.shape[0], tensor12.shape[1], -1)
-                for L in range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1):
+                A = tensor1.swapaxes(1, 2).reshape(tensor1.shape[0] * min_size, tensor1.shape[1])
+                B = tensor2.swapaxes(1, 2).reshape(tensor2.shape[0] * min_size, tensor2.shape[1])
+                cgs = self.cgs[str(l1) + "_" + str(l2)]
+                indices_a = cgs["indices_a"]
+                indices_b = cgs["indices_b"]
+                indices_output = cgs["indices_output"]
+                C = cgs["C"]
+                split_chunks = cgs["split_chunks"]
+                size_output = torch.sum(split_chunks).item()
+                
+                if A.device.type == "cpu":
+                    result = mops.torch.sparse_accumulation_of_products(
+                        A, B, C, indices_a, indices_b, indices_output, size_output
+                    )
+                else:
+                    result = mops.torch.reference_implementations.sparse_accumulation_of_products(
+                        A, B, C, indices_a, indices_b, indices_output, size_output
+                    )
+                result = result.reshape(-1, min_size, size_output)
+                result = result.swapaxes(1, 2)
+                split_chunks_list: List[int] = split_chunks.tolist()
+                split_result = torch.split(result, split_chunks_list, dim=1)
+                for idx, L in enumerate(range(abs(l1 - l2), min(l1 + l2, self.l_max) + 1)):
                     S = int(s1 * s2 * (-1) ** (l1 + l2 + L))
                     if self.requested_LS_string is not None:
                         if str(L) + "_" + str(S) != self.requested_LS_string:
                             continue
-                    result = cg_combine_l1l2L(
-                        tensor12, self.cgs[str(l1) + "_" + str(l2) + "_" + str(L)]
-                    )
                     if (str(L) + "_" + str(S)) not in results_by_lam_sig:
-                        results_by_lam_sig[(str(L) + "_" + str(S))] = [result]
+                        results_by_lam_sig[(str(L) + "_" + str(S))] = [split_result[idx]]
                     else:
-                        results_by_lam_sig[(str(L) + "_" + str(S))].append(result)
+                        results_by_lam_sig[(str(L) + "_" + str(S))].append(split_result[idx])
 
         compressed_results_by_lam_sig: Dict[str, torch.Tensor] = {}
         for LS_string, linear_LS in self.linear_contractions.items():
@@ -230,19 +253,24 @@ def cg_combine_l1l2L(tensor12, cg_tensor):
     return out_tensor.swapaxes(1, 2)
 
 
-def get_cg_coefficients(l_max):
-    cg_object = ClebschGordanReal()
+def get_cg_coefficients(l_max, sparse):
+    cg_object = ClebschGordanReal(sparse)
     for l1 in range(l_max + 1):
         for l2 in range(l_max + 1):
             for L in range(abs(l1 - l2), min(l1 + l2, l_max) + 1):
                 cg_object._add(l1, l2, L)
+
+    if sparse:
+        cg_object.stack_sparse(l_max)
+
     return cg_object
 
 
 class ClebschGordanReal:
 
-    def __init__(self):
+    def __init__(self, sparse):
         self._cgs = {}
+        self.sparse = sparse
 
     def _add(self, l1, l2, L):
         # print(f"Adding new CGs with l1={l1}, l2={l2}, L={L}")
@@ -290,13 +318,19 @@ class ClebschGordanReal:
         ):
             rcg[i0, i1, i2] = 0.0
 
-        # print(l1, l2, L)
-        # print(rcg)
-        # print()
-        # print()
-        self._cgs[(l1, l2, L)] = (
-            torch.tensor(rcg).type(torch.get_default_dtype())
-        )
+        if self.sparse:
+            where_nonzero = np.where(rcg != 0)
+            self._cgs[(l1, l2, L)] = {
+                "indices_a": torch.tensor(where_nonzero[0], dtype=torch.int32),
+                "indices_b": torch.tensor(where_nonzero[1], dtype=torch.int32),
+                "indices_output": torch.tensor(where_nonzero[2], dtype=torch.int32),
+                "C": torch.tensor(rcg[where_nonzero]).type(torch.get_default_dtype()),
+            }
+
+        else:
+            self._cgs[(l1, l2, L)] = (
+                torch.tensor(rcg).type(torch.get_default_dtype())
+            )
 
     def get(self, key):
         if key in self._cgs:
@@ -304,6 +338,38 @@ class ClebschGordanReal:
         else:
             self._add(key[0], key[1], key[2])
             return self._cgs[key]
+        
+    def stack_sparse(self, l_max):
+        if not self.sparse:
+            raise ValueError("Cannot stack sparse tensors if not sparse")
+
+        for l1 in range(l_max + 1):
+            for l2 in range(l_max + 1):
+                indices_a = []
+                indices_b = []
+                indices_output = []
+                C = []
+                split_chunks = []
+                current_output_shift = 0
+                for L in range(abs(l1 - l2), min(l1 + l2, l_max) + 1):
+                    if (l1, l2, L) not in self._cgs:
+                        raise ValueError(
+                            f"CGs for l1={l1}, l2={l2}, L={L} not found... exiting"
+                        )
+                    cgs = self._cgs.pop((l1, l2, L))
+                    indices_a.append(cgs["indices_a"])
+                    indices_b.append(cgs["indices_b"])
+                    indices_output.append(cgs["indices_output"] + current_output_shift)
+                    C.append(cgs["C"])
+                    split_chunks.append(2*L + 1)
+                    current_output_shift += 2 * L + 1
+                self._cgs[(l1, l2)] = {
+                    "indices_a": torch.cat(indices_a),
+                    "indices_b": torch.cat(indices_b),
+                    "indices_output": torch.cat(indices_output),
+                    "C": torch.cat(C),
+                    "split_chunks": torch.tensor(split_chunks),
+                }             
 
 
 def _real2complex(L):

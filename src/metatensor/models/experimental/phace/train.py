@@ -96,6 +96,11 @@ def train(
 
     torch.jit.set_fusion_strategy([("DYNAMIC", 0)])
     model = torch.jit.script(model)
+
+    logger.info(
+        f"Model k_max_l: {model.k_max_l}"
+    )
+
     model_capabilities = model.capabilities
 
     # Perform checks on the datasets:
@@ -229,11 +234,7 @@ def train(
     loss_fn = TensorMapDictLoss(loss_weights_dict, reduction="sum")
 
     # Create an optimizer:
-    optimizer = torch.optim.LBFGS(
-        model.parameters(),
-        lr=hypers_training["learning_rate"],
-        line_search_fn="strong_wolfe",
-    )
+    optimizer = torch.optim.Adam(model.parameters())
 
     # Create a scheduler:
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -258,57 +259,54 @@ def train(
         train_mae_calculator = MAEAccumulator()
         validation_mae_calculator = MAEAccumulator()
 
-        def closure():
+        train_loss = 0.0
+        for batch in train_dataloader:
             optimizer.zero_grad()
-            total_loss = 0.0
-            for batch in train_dataloader:
-                systems, targets = batch
+            systems, targets = batch
 
-                systems = [system.to(device=device) for system in systems]
-                targets = {
-                    key: value.to(device=device) for key, value in targets.items()
-                }
-                predictions = evaluate_model(
-                    model,
-                    systems,
-                    {
-                        name: tensormap.block().gradients_list()
-                        for name, tensormap in targets.items()
-                    },
-                    is_training=True,
+            systems = [system.to(device=device) for system in systems]
+            targets = {
+                key: value.to(device=device) for key, value in targets.items()
+            }
+            predictions = evaluate_model(
+                model,
+                systems,
+                {
+                    name: tensormap.block().gradients_list()
+                    for name, tensormap in targets.items()
+                },
+                is_training=True,
+            )
+
+            # average by the number of atoms (if requested)
+            num_atoms = torch.tensor(
+                [len(s) for s in systems], device=device
+            ).unsqueeze(-1)
+            for pa_target in per_atom_targets:
+                predictions[pa_target] = TensorMap(
+                    predictions[pa_target].keys,
+                    [
+                        average_block_by_num_atoms(
+                            predictions[pa_target].block(), num_atoms
+                        )
+                    ],
+                )
+                targets[pa_target] = TensorMap(
+                    targets[pa_target].keys,
+                    [
+                        average_block_by_num_atoms(
+                            targets[pa_target].block(), num_atoms
+                        )
+                    ],
                 )
 
-                # average by the number of atoms (if requested)
-                num_atoms = torch.tensor(
-                    [len(s) for s in systems], device=device
-                ).unsqueeze(-1)
-                for pa_target in per_atom_targets:
-                    predictions[pa_target] = TensorMap(
-                        predictions[pa_target].keys,
-                        [
-                            average_block_by_num_atoms(
-                                predictions[pa_target].block(), num_atoms
-                            )
-                        ],
-                    )
-                    targets[pa_target] = TensorMap(
-                        targets[pa_target].keys,
-                        [
-                            average_block_by_num_atoms(
-                                targets[pa_target].block(), num_atoms
-                            )
-                        ],
-                    )
+            train_rmse_calculator.update(predictions, targets)
+            train_mae_calculator.update(predictions, targets)
+            loss = loss_fn(predictions, targets)
+            loss.backward()
+            train_loss += loss.item()
+            optimizer.step()
 
-                train_rmse_calculator.update(predictions, targets)
-                train_mae_calculator.update(predictions, targets)
-                loss = loss_fn(predictions, targets)
-                loss.backward()
-                total_loss += loss.item()
-            print(total_loss)
-            return total_loss
-
-        train_loss = optimizer.step(closure)
         finalized_train_info = {
             **train_rmse_calculator.finalize(),
             **train_mae_calculator.finalize(),
@@ -396,17 +394,18 @@ def train(
         else:
             epochs_without_improvement += 1
             if epochs_without_improvement >= hypers_training["early_stopping_patience"]:
-                logger.info(
-                    "Early stopping criterion reached after "
-                    f"{hypers_training['early_stopping_patience']} epochs "
-                    "without improvement."
-                )
-                break
-
-        if epoch == 20:
-            optimizer = torch.optim.LBFGS(
-                model.parameters(), lr=hypers_training["learning_rate"]
-            )
+                lr = optimizer.param_groups[0]["lr"]
+                if lr > 1e-6:
+                    logger.info("Reducing learning rate")
+                    optimizer = torch.optim.Adam(model.parameters(), lr=lr/10.0)
+                    epochs_without_improvement = 0
+                else:
+                    logger.info(
+                        "Early stopping criterion reached after "
+                        f"{hypers_training['early_stopping_patience']} epochs "
+                        "without improvement."
+                    )
+                    break
 
     non_scripted_model = Model(
         capabilities=model_capabilities,

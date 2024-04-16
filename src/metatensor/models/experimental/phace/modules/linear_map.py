@@ -2,13 +2,14 @@ from typing import List
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from .linear import Linear
 
 
 class LinearMap(torch.nn.Module):
     # TODO: replace with the one from metatensor-learn once released
     def __init__(self, n_inputs: int) -> None:
         super().__init__()
-        self.linear = torch.nn.Linear(n_inputs, 1)
+        self.linear = Linear(n_inputs, 1)
 
     def forward(self, features: TensorMap) -> TensorMap:
 
