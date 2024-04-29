@@ -260,6 +260,10 @@ def _get_model_outputs(
 ) -> Dict[str, TensorMap]:
     if is_exported(model):
         try:
+            return model(
+                systems, {key: _get_capabilities(model).outputs[key] for key in targets}
+            )
+        except RuntimeError:
             # put together an EvaluationOptions object
             options = ModelEvaluationOptions(
                 length_unit="",  # this is only needed for unit conversions in MD engines
@@ -267,10 +271,6 @@ def _get_model_outputs(
             )
             # we check consistency here because this could be called from eval
             return model(systems, options, check_consistency=True)
-        except RuntimeError:
-            return model(
-                systems, {key: _get_capabilities(model).outputs[key] for key in targets}
-            )
     else:
         return model(
             systems, {key: _get_capabilities(model).outputs[key] for key in targets}

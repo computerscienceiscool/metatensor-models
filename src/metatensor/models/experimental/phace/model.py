@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional
+# from torch.profiler import record_function
 
 import metatensor.torch
 import torch
@@ -71,7 +72,6 @@ class Model(torch.nn.Module):
         self.element_embedding = CenterEmbedding(
             all_species, n_channels
         )  # This will break for non-invariants! self.k_max_l and somehow extract inside
-        self.readout = Linear(self.k_max_l[0], 1)
 
         self.last_layers = torch.nn.ModuleDict(
             {

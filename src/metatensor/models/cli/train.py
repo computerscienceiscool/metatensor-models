@@ -28,6 +28,9 @@ from ..utils.omegaconf import check_options_list, check_units, expand_dataset_co
 from .eval import _eval_targets
 from .formatter import CustomHelpFormatter
 
+# import cProfile
+# import pstats
+
 
 logger = logging.getLogger(__name__)
 
@@ -402,6 +405,13 @@ def _train_model_hydra(options: DictConfig) -> None:
     )
 
     logger.info("Calling architecture trainer")
+
+    # # Create a profiler object
+    # profiler = cProfile.Profile()
+
+    # # Start profiling
+    # profiler.enable()
+
     try:
         model = architecture.train(
             train_datasets=train_datasets,
@@ -414,6 +424,14 @@ def _train_model_hydra(options: DictConfig) -> None:
         )
     except Exception as e:
         raise ArchitectureError(e)
+
+    # # Stop profiling
+    # profiler.disable()
+
+    # # Create a Stats object and print the results
+    # stats = pstats.Stats(profiler)
+    # stats.sort_stats('time')
+    # stats.print_stats(50)
 
     save(model, f"{Path(options['output_path']).stem}.ckpt")
     export(model, options["output_path"])

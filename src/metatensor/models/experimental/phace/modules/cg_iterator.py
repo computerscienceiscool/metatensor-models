@@ -1,6 +1,5 @@
 from typing import Dict, List, Tuple
 
-import mops.torch.reference_implementations
 import numpy as np
 import torch
 import wigners
@@ -179,14 +178,9 @@ class CGIteration(torch.nn.Module):
                 split_chunks = cgs["split_chunks"]
                 size_output = torch.sum(split_chunks).item()
                 
-                if A.device.type == "cpu":
-                    result = mops.torch.sparse_accumulation_of_products(
-                        A, B, C, indices_a, indices_b, indices_output, size_output
-                    )
-                else:
-                    result = mops.torch.reference_implementations.sparse_accumulation_of_products(
-                        A, B, C, indices_a, indices_b, indices_output, size_output
-                    )
+                result = mops.torch.sparse_accumulation_of_products(
+                    A, B, C, indices_a, indices_b, indices_output, size_output
+                )
                 result = result.reshape(-1, min_size, size_output)
                 result = result.swapaxes(1, 2)
                 split_chunks_list: List[int] = split_chunks.tolist()
