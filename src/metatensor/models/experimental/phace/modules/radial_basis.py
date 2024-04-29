@@ -11,9 +11,10 @@ class RadialBasis(torch.nn.Module):
 
         lengthscales = torch.zeros((max(all_species)+1))
         for species in all_species:
-            lengthscales[species] = 0.0
+            lengthscales[species] = -0.5
         self.n_max_l, self.spliner = get_physical_le_spliner(hypers["E_max"], hypers["r_cut"], hypers["normalize"])
         self.lengthscales = torch.nn.Parameter(lengthscales)
+        # self.register_buffer("lengthscales", lengthscales)
         
         self.all_species = all_species
         self.n_max_l = list(self.n_max_l)

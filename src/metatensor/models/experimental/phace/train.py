@@ -233,8 +233,24 @@ def train(
     # Create a loss function:
     loss_fn = TensorMapDictLoss(loss_weights_dict, reduction="sum")
 
+    # special_params = [
+    #     param for name, param in model.named_parameters() if ('lengthscales' in name or 'embeddings' in name or 'last_layers' in name)
+    # ]
+    # other_params = [
+    #     param for name, param in model.named_parameters()
+    #     if ('lengthscales' not in name and 'embeddings' not in name and 'last_layers' not in name)
+    # ]
+
+    # lr = hypers_training["learning_rate"]
+
+    # param_groups = [
+    #     {'params': special_params, 'lr': lr/100.0},
+    #     {'params': other_params, 'lr': lr}
+    # ]
+
+
     # Create an optimizer:
-    optimizer = torch.optim.Adam(model.parameters())
+    optimizer = torch.optim.AdamW(model.parameters(), lr=hypers_training["learning_rate"], amsgrad=True)
 
     # Create a scheduler:
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -253,6 +269,10 @@ def train(
 
     # Train the model:
     logger.info("Starting training")
+
+    # from torch.profiler import profile, ProfilerActivity
+
+    # with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
     for epoch in range(hypers_training["num_epochs"]):
         train_rmse_calculator = RMSEAccumulator()
         validation_rmse_calculator = RMSEAccumulator()
@@ -406,6 +426,9 @@ def train(
                         "without improvement."
                     )
                     break
+
+    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
+    # exit()
 
     non_scripted_model = Model(
         capabilities=model_capabilities,

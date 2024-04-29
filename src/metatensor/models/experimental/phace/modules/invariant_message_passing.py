@@ -76,7 +76,7 @@ class InvariantMessagePasser(torch.nn.Module):
         return TensorMap(
             keys=Labels(
                 names=["o3_lambda", "o3_sigma"],
-                values=torch.tensor(labels, dtype=torch.int32),
-            ).to(device=r.device),
+                values=torch.tensor(labels, dtype=torch.int32, device=r.device),
+            ),
             blocks=blocks,
         )

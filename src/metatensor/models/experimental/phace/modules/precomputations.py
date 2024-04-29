@@ -58,9 +58,9 @@ class Precomputer(torch.nn.Module):
                     Labels(
                         names=("m",),
                         values=torch.arange(
-                            start=-l, end=l + 1, dtype=torch.int32
+                            start=-l, end=l + 1, dtype=torch.int32, device=cartesian_vectors.values.device
                         ).reshape(2 * l + 1, 1),
-                    ).to(device=cartesian_vectors.values.device)
+                    )
                 ],
                 properties=Labels(
                     names=["properties"],
@@ -158,8 +158,8 @@ def get_cartesian_vectors(
         components=[
             Labels(
                 names=["cartesian_dimension"],
-                values=torch.tensor([-1, 0, 1], dtype=torch.int32).reshape((-1, 1)),
-            ).to(device=direction_vectors.device)
+                values=torch.tensor([-1, 0, 1], dtype=torch.int32, device=direction_vectors.device).reshape((-1, 1))
+            )
         ],
         properties=Labels(
             names=["_"],
