@@ -100,9 +100,19 @@ class CGIteration(torch.nn.Module):
         super().__init__()
         self.k_max_l = k_max_l
         self.l_max = len(k_max_l) - 1
-        self.cgs = cgs
         self.irreps_out = []
         self.requested_LS_string = requested_LS_string
+        self.cg_split_chunks = {}
+
+        for key in cgs.keys():
+            for name in ["indices_a", "indices_b", "indices_output", "C", "split_chunks"]:
+                if name == "split_chunks":
+                    self.cg_split_chunks[key] = cgs[key][name]
+                else:
+                    self.register_buffer(
+                        key + "_" + name,
+                        cgs[key][name],
+                    )
 
         self.sizes_by_lam_sig: Dict[str, int] = {}
         for l1, s1 in irreps_in_1:
@@ -138,24 +148,6 @@ class CGIteration(torch.nn.Module):
         )
 
     def forward(self, features_1: TensorMap, features_2: TensorMap):
-        # handle dtype and device of the cgs
-        if self.cgs["0_0"]["indices_a"].device != features_1.device:
-            self.cgs = {
-                key: {
-                    key2: value2.to(device=features_1.device)
-                    for key2, value2 in value.items()
-                }
-                for key, value in self.cgs.items()
-            }
-        if self.cgs["0_0"]["indices_a"].dtype != features_1.dtype:
-            self.cgs = {
-                key: {
-                    key2: (value2.to(dtype=features_1.dtype) if key2 == "C" else value2)
-                    for key2, value2 in value.items()
-                }
-                for key, value in self.cgs.items()
-            }
-
         # COULD DECREASE COST IF SYMMETRIC
         # Assume first and last dimension is the same for both
         results_by_lam_sig: Dict[str, List[torch.Tensor]] = {}
@@ -170,14 +162,21 @@ class CGIteration(torch.nn.Module):
                 tensor2 = block_ls_2.values[:, :, :min_size]
                 A = tensor1.swapaxes(1, 2).reshape(tensor1.shape[0] * min_size, tensor1.shape[1])
                 B = tensor2.swapaxes(1, 2).reshape(tensor2.shape[0] * min_size, tensor2.shape[1])
-                cgs = self.cgs[str(l1) + "_" + str(l2)]
-                indices_a = cgs["indices_a"]
-                indices_b = cgs["indices_b"]
-                indices_output = cgs["indices_output"]
-                C = cgs["C"]
-                split_chunks = cgs["split_chunks"]
+                indices_a = torch.empty(())
+                indices_b = torch.empty(())
+                indices_output = torch.empty(())
+                C = torch.empty(())
+                for key, buffer in self.named_buffers():
+                    if key == str(l1) + "_" + str(l2) + "_indices_a":
+                        indices_a = buffer
+                    if key == str(l1) + "_" + str(l2) + "_indices_b":
+                        indices_b = buffer
+                    if key == str(l1) + "_" + str(l2) + "_indices_output":
+                        indices_output = buffer
+                    if key == str(l1) + "_" + str(l2) + "_C":
+                        C = buffer
+                split_chunks = self.cg_split_chunks[str(l1) + "_" + str(l2)]
                 size_output = torch.sum(split_chunks).item()
-                
                 result = mops.torch.sparse_accumulation_of_products(
                     A, B, C, indices_a, indices_b, indices_output, size_output
                 )

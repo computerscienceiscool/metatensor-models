@@ -17,12 +17,12 @@ class InitialFeatures(torch.nn.Module):
             samples=Labels(
                 names=["system", "atom", "center_type"],
                 values=torch.stack([structures, centers, species], dim=1),
-            ).to(device=structures.device),
+            ),
             components=[
                 Labels(
                     names=["m"],
                     values=torch.tensor([[0]], device=structures.device),
-                ).to(device=structures.device)
+                )
             ],
             properties=Labels(
                 names=["properties"],
