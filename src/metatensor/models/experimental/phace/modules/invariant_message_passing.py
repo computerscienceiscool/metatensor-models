@@ -2,6 +2,7 @@ from typing import Dict, List
 
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from .labels_to_device import move_labels_to_device
 
 from .radial_basis import RadialBasis
 
@@ -24,6 +25,14 @@ class InvariantMessagePasser(torch.nn.Module):
         self.k_max_l = [hypers["n_element_channels"] * n_max for n_max in self.n_max_l]
         self.l_max = len(self.n_max_l) - 1
 
+        self.properties = [Labels(
+            names=["properties"],
+            values=torch.arange(
+                k_max,
+                dtype=torch.int,
+            ).reshape(k_max, 1),
+        ) for k_max in self.k_max_l]
+
     def forward(
         self,
         r: TensorBlock,
@@ -34,17 +43,18 @@ class InvariantMessagePasser(torch.nn.Module):
         initial_center_embedding: TensorMap,
         samples: Labels,
     ) -> TensorMap:
+        device = r.values.device
+        self.properties = [move_labels_to_device(p, device) for p in self.properties]
 
         radial_basis = self.radial_basis_calculator(r.values.squeeze(-1), r.samples)
 
-        labels: List[List[int]] = []
         blocks: List[TensorBlock] = []
         for l in range(self.l_max + 1):
             spherical_harmonics_l = sh.block({"o3_lambda": l}).values
             radial_basis_l = radial_basis[l]
             densities_l = torch.zeros(
                 (n_atoms, spherical_harmonics_l.shape[1], radial_basis_l.shape[1]),
-                device=radial_basis_l.device,
+                device=device,
                 dtype=radial_basis_l.dtype,
             )
             densities_l.index_add_(
@@ -56,27 +66,16 @@ class InvariantMessagePasser(torch.nn.Module):
                     :, :, : radial_basis_l.shape[1]
                 ],
             )
-            labels.append([l, 1])
             blocks.append(
                 TensorBlock(
                     values=densities_l,
                     samples=samples,
                     components=sh.block({"o3_lambda": l}).components,
-                    properties=Labels(
-                        names=["properties"],
-                        values=torch.arange(
-                            densities_l.shape[2],
-                            dtype=torch.int,
-                            device=densities_l.device,
-                        ).reshape(densities_l.shape[2], 1),
-                    ),
+                    properties=self.properties[l],
                 )
             )
 
         return TensorMap(
-            keys=Labels(
-                names=["o3_lambda", "o3_sigma"],
-                values=torch.tensor(labels, dtype=torch.int32, device=r.device),
-            ),
+            keys=sh.keys,
             blocks=blocks,
         )

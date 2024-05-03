@@ -249,20 +249,9 @@ def train(
     # ]
 
 
-    # Create an optimizer:
-    optimizer = torch.optim.AdamW(model.parameters(), lr=hypers_training["learning_rate"], amsgrad=True)
-
-    # Create a scheduler:
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=hypers_training["scheduler_factor"],
-        patience=hypers_training["scheduler_patience"],
-    )
-
-    # counters for early stopping:
-    best_validation_loss = float("inf")
-    epochs_without_improvement = 0
+    # Create an optimizer and a scheduler:
+    optimizer = torch.optim.AdamW(model.parameters(), lr=hypers_training["learning_rate"], amsgrad=True, weight_decay=5e-5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=hypers_training["scheduler_factor"], patience=hypers_training["scheduler_patience"])
 
     # per-atom targets:
     per_atom_targets = hypers_training["per_atom_targets"]
@@ -270,9 +259,10 @@ def train(
     # Train the model:
     logger.info("Starting training")
 
-    # from torch.profiler import profile, ProfilerActivity
+    from torch.profiler import profile, ProfilerActivity
 
-    # with profile(activities=[ProfilerActivity.CPU], record_shapes=True) as prof:
+    best_validation_loss = float("inf")
+    n_epochs_without_improvement = 0
     for epoch in range(hypers_training["num_epochs"]):
         train_rmse_calculator = RMSEAccumulator()
         validation_rmse_calculator = RMSEAccumulator()
@@ -288,6 +278,7 @@ def train(
             targets = {
                 key: value.to(device=device) for key, value in targets.items()
             }
+            # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=False) as prof:
             predictions = evaluate_model(
                 model,
                 systems,
@@ -298,6 +289,9 @@ def train(
                 is_training=True,
             )
 
+            # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
+            # exit()
+            
             # average by the number of atoms (if requested)
             num_atoms = torch.tensor(
                 [len(s) for s in systems], device=device
@@ -374,8 +368,6 @@ def train(
             **validation_mae_calculator.finalize(),
         }
 
-        lr_scheduler.step(validation_loss)
-
         # Now we log the information:
         finalized_train_info = {"loss": train_loss, **finalized_train_info}
         finalized_validation_info = {
@@ -407,28 +399,25 @@ def train(
                 Path(output_dir) / f"model_{epoch}.ckpt",
             )
 
-        # early stopping criterion:
+        lr_before = optimizer.param_groups[0]["lr"]
+        scheduler.step(validation_loss)
+        lr_after = optimizer.param_groups[0]["lr"]
+        if lr_before != lr_after:
+            logger.info(f"Learning rate changed from {lr_before} to {lr_after}")
+        if lr_after < 1e-6:
+            logger.info("Training has converged, stopping")
+            break
+
         if validation_loss < best_validation_loss:
             best_validation_loss = validation_loss
-            epochs_without_improvement = 0
+            n_epochs_without_improvement = 0
         else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement >= hypers_training["early_stopping_patience"]:
-                lr = optimizer.param_groups[0]["lr"]
-                if lr > 1e-6:
-                    logger.info("Reducing learning rate")
-                    optimizer = torch.optim.Adam(model.parameters(), lr=lr/10.0)
-                    epochs_without_improvement = 0
-                else:
-                    logger.info(
-                        "Early stopping criterion reached after "
-                        f"{hypers_training['early_stopping_patience']} epochs "
-                        "without improvement."
-                    )
-                    break
-
-    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
-    # exit()
+            n_epochs_without_improvement += 1
+            if n_epochs_without_improvement >= hypers_training["early_stopping_patience"]:
+                logger.info(
+                    f"Stopping early after {n_epochs_without_improvement} epochs without improvement"
+                )
+                break
 
     non_scripted_model = Model(
         capabilities=model_capabilities,

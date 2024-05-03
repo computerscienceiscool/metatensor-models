@@ -27,18 +27,14 @@ class CenterEmbedding(torch.nn.Module):
         samples = equivariants.block(0).samples.column("center_type")
         channel_weights = self.embeddings.linear_layer.weight.T[self.species_to_species_index[samples]]
 
-        keys: List[torch.Tensor] = (
-            []
-        )  # Can perhaps be precomputed or reused from equivariants?
         blocks: List[TensorBlock] = []
 
-        for key, block in equivariants.items():
+        for _, block in equivariants.items():
             assert block.values.shape[-1] % self.n_channels == 0
             n_repeats = block.values.shape[-1] // self.n_channels
             new_block_values = block.values * channel_weights.repeat(
                 1, n_repeats
             ).unsqueeze(1)
-            keys.append(key.values)
             blocks.append(
                 TensorBlock(
                     values=new_block_values,
@@ -49,9 +45,6 @@ class CenterEmbedding(torch.nn.Module):
             )
 
         return TensorMap(
-            keys=Labels(
-                names=["o3_lambda", "o3_sigma"],
-                values=torch.stack(keys).to(equivariants.keys.values.device),
-            ),
+            keys=equivariants.keys,
             blocks=blocks,
         )

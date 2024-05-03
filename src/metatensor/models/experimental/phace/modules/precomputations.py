@@ -1,6 +1,7 @@
 import sphericart.torch
 import torch
 from metatensor.torch import Labels, TensorBlock, TensorMap
+from .labels_to_device import move_labels_to_device
 
 
 class Precomputer(torch.nn.Module):
@@ -10,6 +11,26 @@ class Precomputer(torch.nn.Module):
         self.normalize = normalize
         self.spherical_harmonics_calculator = sphericart.torch.SphericalHarmonics(
             l_max, normalized=True
+        )
+
+        # labels
+        self.spherical_harmonics_components = [Labels(
+            names=["m"],
+            values=torch.arange(
+                start=-l, end=l + 1, dtype=torch.int32
+            ).reshape(2 * l + 1, 1),
+        ) for l in range(l_max + 1)]
+        self.spherical_harmonics_properties = Labels(
+            names=["properties"],
+            values=torch.tensor([[0]], dtype=torch.int32),
+        )
+        self.spherical_harmonics_keys = Labels(
+            names=["o3_lambda", "o3_sigma"],
+            values=torch.tensor([[l, 1] for l in range(l_max + 1)], dtype=torch.int32),
+        )
+        self.r_properties = Labels(
+            names=["properties"],
+            values=torch.tensor([[0]], dtype=torch.int32),
         )
 
     def forward(
@@ -24,6 +45,12 @@ class Precomputer(torch.nn.Module):
         structure_pairs,
         structure_offsets,
     ):
+        device = positions.device
+        self.spherical_harmonics_components = [move_labels_to_device(s, device) for s in self.spherical_harmonics_components]
+        self.spherical_harmonics_properties = move_labels_to_device(self.spherical_harmonics_properties, device)
+        self.spherical_harmonics_keys = move_labels_to_device(self.spherical_harmonics_keys, device)
+        self.r_properties = move_labels_to_device(self.r_properties, device)
+
         cartesian_vectors = get_cartesian_vectors(
             positions,
             cells,
@@ -54,30 +81,13 @@ class Precomputer(torch.nn.Module):
             TensorBlock(
                 values=spherical_harmonics_l.unsqueeze(-1),
                 samples=cartesian_vectors.samples,
-                components=[
-                    Labels(
-                        names=("m",),
-                        values=torch.arange(
-                            start=-l, end=l + 1, dtype=torch.int32, device=cartesian_vectors.values.device
-                        ).reshape(2 * l + 1, 1),
-                    )
-                ],
-                properties=Labels(
-                    names=["properties"],
-                    values=torch.tensor(
-                        [[0]], dtype=torch.int32, device=cartesian_vectors.values.device
-                    ),
-                ),
+                components=[spherical_harmonics_components_l],
+                properties=self.spherical_harmonics_properties,
             )
-            for l, spherical_harmonics_l in enumerate(spherical_harmonics)
+            for spherical_harmonics_components_l, spherical_harmonics_l in zip(self.spherical_harmonics_components, spherical_harmonics)
         ]
         spherical_harmonics_map = TensorMap(
-            keys=Labels(
-                names=["o3_lambda"],
-                values=torch.arange(
-                    len(spherical_harmonics_blocks), device=r.device
-                ).reshape(len(spherical_harmonics_blocks), 1),
-            ),
+            keys=self.spherical_harmonics_keys,
             blocks=spherical_harmonics_blocks,
         )
 
@@ -85,10 +95,7 @@ class Precomputer(torch.nn.Module):
             values=r.unsqueeze(-1),
             samples=cartesian_vectors.samples,
             components=[],
-            properties=Labels(
-                names=["properties"],
-                values=torch.tensor([[0]], dtype=torch.int, device=r.device),
-            ),
+            properties=self.r_properties,
         )
 
         return r_block, spherical_harmonics_map

@@ -9,6 +9,8 @@ import mops.torch
 from .tensor_sum import TensorAdd
 from .linear import Linear
 
+from .labels_to_device import move_labels_to_device
+
 
 class CGIterator(torch.nn.Module):
     def __init__(
@@ -146,8 +148,34 @@ class CGIteration(torch.nn.Module):
             names=["o3_lambda", "o3_sigma"],
             values=torch.tensor(values_out, dtype=torch.long),
         )
+        self.components_out = [
+            Labels(
+                names=["mu"],
+                values=torch.arange(
+                    start=-L,
+                    end=L + 1,
+                    dtype=torch.int,
+                ).reshape(2 * L + 1, 1),
+            )
+            for L, _ in self.irreps_out
+        ]
+        self.properties_out = [
+            Labels(
+                names=["properties"],
+                values=torch.arange(
+                    self.k_max_l[L],
+                    dtype=torch.int,
+                ).reshape(self.k_max_l[L], 1),
+            )
+            for L, _ in self.irreps_out
+        ]
 
     def forward(self, features_1: TensorMap, features_2: TensorMap):
+        device = features_1.device
+        self.keys_out = move_labels_to_device(self.keys_out, device)
+        self.components_out = [move_labels_to_device(c, device) for c in self.components_out]
+        self.properties_out = [move_labels_to_device(p, device) for p in self.properties_out]
+
         # COULD DECREASE COST IF SYMMETRIC
         # Assume first and last dimension is the same for both
         results_by_lam_sig: Dict[str, List[torch.Tensor]] = {}
@@ -214,29 +242,12 @@ class CGIteration(torch.nn.Module):
                 TensorBlock(
                     values=compressed_tensor_LS,
                     samples=features_1.block({"o3_lambda": 0, "o3_sigma": 1}).samples,
-                    components=[
-                        Labels(
-                            names=["mu"],
-                            values=torch.arange(
-                                start=-L,
-                                end=L + 1,
-                                dtype=torch.int,
-                                device=compressed_tensor_LS.device,
-                            ).reshape(2 * L + 1, 1),
-                        ).to(compressed_tensor_LS.device)
-                    ],
-                    properties=Labels(
-                        names=["properties"],
-                        values=torch.arange(
-                            compressed_tensor_LS.shape[2],
-                            dtype=torch.int,
-                            device=compressed_tensor_LS.device,
-                        ).reshape(compressed_tensor_LS.shape[2], 1),
-                    ),
+                    components=[self.components_out[L]],
+                    properties=self.properties_out[L],
                 )
             )
 
-        return TensorMap(keys=self.keys_out.to(blocks[0].values.device), blocks=blocks)
+        return TensorMap(keys=self.keys_out, blocks=blocks)
 
 
 def cg_combine_l1l2L(tensor12, cg_tensor):

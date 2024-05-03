@@ -1,9 +1,8 @@
 from typing import Dict, List, Optional
-# from torch.profiler import record_function
 
 import metatensor.torch
 import torch
-from metatensor.torch import Labels, TensorBlock, TensorMap
+from metatensor.torch import Labels, TensorMap
 from metatensor.torch.atomistic import (
     ModelCapabilities,
     ModelOutput,
@@ -22,7 +21,6 @@ from .modules.center_embedding import CenterEmbedding
 from .modules.invariant_message_passing import InvariantMessagePasser
 from .modules.linear_map import LinearMap
 from .modules.precomputations import Precomputer
-from .modules.linear import Linear
 
 
 ARCHITECTURE_NAME = "experimental.phace"
@@ -60,7 +58,7 @@ class Model(torch.nn.Module):
 
         self.cg_iterator = CGIterator(
             self.k_max_l,
-            3,
+            5,
             cgs,
             irreps_in=irreps_spex,
             exponential_algorithm=False,
@@ -127,14 +125,6 @@ class Model(torch.nn.Module):
             structure_offsets=structures["structure_offsets"],
         )
 
-        initial_features = self.initial_features(
-            structures["structure_centers"],
-            structures["centers"],
-            structures["species"],
-            structures["positions"].dtype,
-        )
-        initial_element_embedding = self.element_embedding(initial_features)
-
         samples_values = torch.stack(
             (
                 structures["structure_centers"],
@@ -147,6 +137,12 @@ class Model(torch.nn.Module):
             names=["system", "atom", "center_type"],
             values=samples_values,
         )
+
+        initial_features = self.initial_features(
+            samples,
+            structures["positions"].dtype,
+        )
+        initial_element_embedding = self.element_embedding(initial_features)
 
         spherical_expansion = self.invariant_message_passer(
             r,

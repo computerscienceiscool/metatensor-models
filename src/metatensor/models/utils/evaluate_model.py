@@ -184,12 +184,12 @@ def _position_gradients_to_block(gradients_list):
             [
                 torch.concatenate(
                     [
-                        torch.tensor([i] * len(system))
+                        torch.tensor([i] * len(system), device=system.device)
                         for i, system in enumerate(gradients_list)
                     ]
                 ),
                 torch.concatenate(
-                    [torch.arange(len(system)) for system in gradients_list]
+                    [torch.arange(len(system), device=system.device) for system in gradients_list]
                 ),
             ],
             dim=1,
@@ -199,15 +199,15 @@ def _position_gradients_to_block(gradients_list):
     components = [
         Labels(
             names=["xyz"],
-            values=torch.tensor([[0], [1], [2]]),
+            values=torch.tensor([[0], [1], [2]], device=gradients.device),
         )
     ]
 
     return TensorBlock(
         values=gradients,
-        samples=samples.to(gradients.device),
-        components=[c.to(gradients.device) for c in components],
-        properties=Labels("energy", torch.tensor([[0]])).to(gradients.device),
+        samples=samples,
+        components=components,
+        properties=Labels("energy", torch.tensor([[0]], device=gradients.device)),
     )
 
 
