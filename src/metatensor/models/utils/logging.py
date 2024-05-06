@@ -1,8 +1,15 @@
+"""Logging."""
+
+import contextlib
 import logging
+import sys
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from metatensor.torch.atomistic import ModelCapabilities
+
+from .io import check_suffix
 
 
 logger = logging.getLogger(__name__)
@@ -157,3 +164,56 @@ def _get_digits(value: float) -> Tuple[int, int]:
     total_characters = digits_before + digits_after + 1  # +1 for the point
 
     return total_characters, digits_after
+
+
+@contextlib.contextmanager
+def setup_logging(
+    logobj: logging.Logger,
+    logfile: Optional[Union[str, Path]] = None,
+    level: int = logging.WARNING,
+):
+    """Create a logging environment for a given ``logobj``.
+
+    Extracted and adjusted
+    from github.com/MDAnalysis/mdacli/blob/main/src/mdacli/logger.py
+
+    :param logobj: A logging instance
+    :param logfile: Name of the log file
+    :param level: Set the root logger level to the specified level. If for example set
+        to :py:obj:`logging.DEBUG` detailed debug logs inludcing filename and function
+        name are displayed. For :py:obj:`logging.INFO only the message logged from
+        errors, warnings and infos will be displayed.
+    """
+    try:
+        format = "[{asctime}][{levelname}]"
+        if level == logging.DEBUG:
+            format += ":{filename}:{name}:{funcName}:{lineno}"
+        format += " - {message}"
+
+        handlers: List[Union[logging.StreamHandler, logging.FileHandler]] = [
+            logging.StreamHandler(sys.stdout)
+        ]
+
+        if logfile:
+            logfile = check_suffix(logfile, suffix=".log")
+            file_handler = logging.FileHandler(filename=str(logfile), encoding="utf-8")
+            file_handler.setFormatter(logging.Formatter(format, style="{"))
+            handlers.append(file_handler)
+            logobj.info(f"This log is also available in {str(logfile)!r}.")
+        else:
+            logobj.info("Logging to file is disabled.")
+
+        logging.basicConfig(
+            format=format,
+            datefmt="%Y-%m-%d %H:%M:%S",
+            handlers=handlers,
+            level=level,
+            style="{",
+        )
+
+        yield
+
+    finally:
+        if logfile:
+            file_handler.close()
+            logobj.removeHandler(file_handler)

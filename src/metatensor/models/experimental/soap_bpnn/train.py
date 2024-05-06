@@ -46,7 +46,7 @@ def train(
     devices: List[torch.device],
     hypers: Dict = DEFAULT_HYPERS,
     continue_from: Optional[str] = None,
-    output_dir: str = ".",
+    checkpoint_dir: str = ".",
 ):
     all_species = get_all_species(train_datasets + validation_datasets)
     outputs = {
@@ -336,7 +336,7 @@ def train(
         if epoch % hypers_training["checkpoint_interval"] == 0:
             save(
                 model,
-                Path(output_dir) / f"model_{epoch}.ckpt",
+                Path(checkpoint_dir) / f"model_{epoch}.ckpt",
             )
 
         # early stopping criterion:

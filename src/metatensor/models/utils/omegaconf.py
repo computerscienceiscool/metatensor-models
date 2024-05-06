@@ -1,4 +1,5 @@
 import importlib
+import secrets
 from pathlib import Path
 from typing import Dict, List, Union
 
@@ -63,10 +64,16 @@ def default_precision(_root_: BaseContainer) -> int:
         )
 
 
+def defaul_random_seed() -> int:
+    """Return a random int in the range [0, 2**32)."""
+    return secrets.randbelow(2**32)
+
+
 # Register custom resolvers
 OmegaConf.register_new_resolver("file_format", file_format)
 OmegaConf.register_new_resolver("default_device", default_device)
 OmegaConf.register_new_resolver("default_precision", default_precision)
+OmegaConf.register_new_resolver("defaul_random_seed", defaul_random_seed)
 
 
 def _resolve_single_str(config: str) -> DictConfig:

@@ -28,6 +28,25 @@ except ImportError:
     pass
 
 
+def check_suffix(fname: Union[str, Path], suffix: str) -> Union[str, Path]:
+    """Check the suffix of a file and adds if it not existing."""
+    path_fname = Path(fname)
+
+    if path_fname.suffix != suffix:
+        warnings.warn(
+            f"The file name should have a '{suffix}' extension. The user "
+            f"requested the file with name '{fname}', but it will be saved as "
+            f"'{fname}{suffix}'.",
+            stacklevel=1,
+        )
+        path_fname /= suffix
+
+    if type(fname) is str:
+        return str(path_fname)
+    else:
+        return path_fname
+
+
 def save(
     model: torch.nn.Module,
     path: Union[str, Path],
